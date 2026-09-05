@@ -42,7 +42,7 @@ static WSC: AtomicBool = AtomicBool::new(false);
 
 /// Handle a change in window size.
 extern "C" fn handle_wsize(_: c_int, _: *mut siginfo_t, _: *mut c_void) {
-    WSC.store(true, Relaxed)
+    WSC.store(true, Relaxed);
 }
 
 /// Register a signal handler that sets a global variable when the window size
@@ -53,8 +53,8 @@ pub fn register_winsize_change_signal_handler() -> io::Result<()> {
     unsafe {
         let mut maybe_sa = std::mem::MaybeUninit::<sigaction>::uninit();
         cerr(libc::sigemptyset(&raw mut (*maybe_sa.as_mut_ptr()).sa_mask))?;
-        // We could use sa_handler here, however, sigaction defined in libc does not
-        // have sa_handler field, so we use sa_sigaction instead.
+        // We could use sa_handler here, however, sigaction defined in libc does
+        // not have sa_handler field, so we use sa_sigaction instead.
         (*maybe_sa.as_mut_ptr()).sa_flags = SA_SIGINFO;
         (*maybe_sa.as_mut_ptr()).sa_sigaction = handle_wsize as *const () as sighandler_t;
         cerr(sigaction(libc::SIGWINCH, maybe_sa.as_ptr(), std::ptr::null_mut()))
@@ -64,9 +64,7 @@ pub fn register_winsize_change_signal_handler() -> io::Result<()> {
 /// Check if the windows size has changed since the last call to this function.
 /// The `register_winsize_change_signal_handler` needs to be called before this
 /// function.
-pub fn has_window_size_changed() -> bool {
-    WSC.swap(false, Relaxed)
-}
+pub fn has_window_size_changed() -> bool { WSC.swap(false, Relaxed) }
 
 /// Set the terminal mode.
 pub fn set_term_mode(term: &TermMode) -> io::Result<()> {
@@ -96,10 +94,6 @@ pub fn enable_raw_mode() -> io::Result<TermMode> {
 ///
 /// This function always returns Ok(...). The return type is a Result for
 /// compatibility with other platforms.
-pub fn stdin() -> io::Result<impl BufRead> {
-    Ok(io::stdin().lock())
-}
+pub fn stdin() -> io::Result<impl BufRead> { Ok(io::stdin().lock()) }
 
-pub fn path(filename: &str) -> std::path::PathBuf {
-    std::path::PathBuf::from(filename)
-}
+pub fn path(filename: &str) -> std::path::PathBuf { std::path::PathBuf::from(filename) }

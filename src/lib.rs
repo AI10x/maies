@@ -8,7 +8,7 @@
 
 pub use crate::{
     config::Config,
-    editor::{DEFAULT_SYSTEM_PROMPT, run, run_with_completion_prompt},
+    editor::{DEFAULT_SYSTEM_PROMPT, run, run_with_ai, run_with_completion_prompt},
     error::Error,
     sys::stdin,
 };
@@ -26,5 +26,4 @@ mod terminal;
 #[cfg_attr(target_os = "wasi", path = "wasi.rs")]
 mod sys;
 
-#[cfg(any(unix, target_os = "wasi"))]
-mod xdg;
+#[cfg(any(unix, target_os = "wasi"))] mod xdg;

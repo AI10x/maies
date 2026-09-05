@@ -3,513 +3,322 @@ SPDX-FileCopyrightText: 2020 Ilaï Deutel & Kibi Contributors
 SPDX-License-Identifier: MIT or Apache-2.0
 -->
 
-<div align="center">
-    <!-- markdownlint-disable-next-line line_length -->
-    <img src="./assets/kibi.svg" alt="Logo of Kibi. A dark gray square with rounded corners contains a large, light-orange, backward-pointing chevron and a bright green, vertical rectangle. To the left of the chevron is a column of ten light-orange, horizontal rectangles. These ten rectangles function as a 10-bit binary counter, with the bottom bar being the least significant bit and the top the most significant. The bars blink in a sequence that counts from 0 to 1023 in binary." width="256" />
-</div>
+# Maies
 
-# Kibi: A text editor in ≤1024 lines of code, written in Rust
+Maies is a minimalist, terminal-based text editor with optional AI-assisted
+completion. It is based on [Kibi](https://github.com/ilai-deutel/kibi) and keeps
+Kibi's compact Rust editor core, UTF-8 support, search, syntax highlighting, and
+cross-platform terminal support while adding ghost-text completion and text
+selection.
 
-[![Build Status](https://github.com/ilai-deutel/kibi/actions/workflows/ci.yml/badge.svg)](https://github.com/ilai-deutel/kibi/actions/workflows/ci.yml)
-[![Lines of code](https://github.com/ilai-deutel/kibi/actions/workflows/loc.yml/badge.svg)](https://github.com/ilai-deutel/kibi/actions/workflows/loc.yml)
-[![CodeQL](https://github.com/ilai-deutel/kibi/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/ilai-deutel/kibi/actions/workflows/github-code-scanning/codeql)
-[![Crate](https://img.shields.io/crates/v/kibi.svg)](https://crates.io/crates/kibi)
-[![Platform](https://img.shields.io/badge/platform-Linux%20|%20macOS%20|%20Windows%2010%20|%20WASI-blue)](#)
-[![Packaging status](https://repology.org/badge/tiny-repos/kibi.svg)](https://repology.org/project/kibi/versions)
-[![Dependency Status](https://deps.rs/repo/github/ilai-deutel/kibi/status.svg)](https://deps.rs/repo/github/ilai-deutel/kibi)
-[![Coverage Status](https://coveralls.io/repos/github/ilai-deutel/kibi/badge.svg)](https://coveralls.io/github/ilai-deutel/kibi)
-[![License](https://img.shields.io/crates/l/kibi?color=blue)](#license)
-[![REUSE status](https://api.reuse.software/badge/github.com/ilai-deutel/kibi)](https://api.reuse.software/info/github.com/ilai-deutel/kibi)
-[![Rust Report Card](https://rust-reportcard.xuri.me/badge/github.com/ilai-deutel/kibi)](https://rust-reportcard.xuri.me/report/github.com/ilai-deutel/kibi)
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/ilai-deutel/kibi/badge)](https://scorecard.dev/viewer/?uri=github.com/ilai-deutel/kibi)
-[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/11296/badge)](https://www.bestpractices.dev/projects/11296)
-[![Socket Badge](https://badge.socket.dev/cargo/package/kibi/0.3.3)](https://badge.socket.dev/cargo/package/kibi/0.3.3)
-[![SLSA 3](https://slsa.dev/images/gh-badge-level3.svg)](https://slsa.dev)
-[![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-3.0-5E0D73.svg?logo=contributorcovenant)](CODE_OF_CONDUCT.md)<!-- ALL-CONTRIBUTORS-BADGE:START - Do not remove or modify this section -->
-[![All Contributors](https://img.shields.io/badge/all_contributors-47-orange.svg)](#contributors)
-<!-- ALL-CONTRIBUTORS-BADGE:END -->
+The package and executable are still named `kibi` so the fork remains close to
+its upstream foundation. The project itself is documented here as Maies.
 
-[![Kibi in action: creating and editing a file, with syntax highlighting and search feature](assets/recording.svg)](https://asciinema.org/a/KY7tKPlxHXqRdJiv5KaTJbPj5)
+## What It Does
 
-A configurable text editor with UTF-8 support, incremental search, syntax
-highlighting, line numbers and more, written in less than 1024
-lines[^1] of Rust with minimal dependencies.
+Maies provides:
 
-[^1]: Counted per platform, excluding tests and Clippy directives, see [`count_loc`](./xtask/src/count_loc.rs)
+- Terminal editing on Linux, macOS, Windows 10+, and WASI
+- UTF-8 text handling and horizontal/vertical scrolling
+- Incremental search and go-to-line navigation
+- Configurable line numbers, tab width, quit confirmation, and status messages
+- File-extension-based syntax highlighting
+- Row copy, cut, paste, duplication, deletion, and comment toggling
+- Shift-arrow text selection with replacement and deletion
+- External command execution with output inserted into the document
+- Optional OpenAI or Azure OpenAI completions shown as gray ghost text on
+  Linux and macOS
 
-Kibi is compatible with Linux, macOS, Windows
-10[^2], and WASI.
+AI completion is disabled unless `--ai`, `--system-prompt`, or
+`--system-prompt-file` is passed. Normal editing does not require Python,
+network access, or API credentials.
 
-[^2]: Kibi requires the terminal to support ANSI escape sequences. Windows 10 version 1703 ([Creators Update](https://devblogs.microsoft.com/commandline/windows-10-creators-update-whats-new-in-bashwsl-windows-console), April 2017) and above are supported.</sub>
+## Install
 
-This project is inspired by [`kilo`](https://github.com/antirez/kilo), a text
-editor written in C.
-See [comparison](#comparison-with-kilo) below for a list of additional features.
+### Requirements
 
-Contributions are welcome! Be careful to stay below the 1024-line limit...
+- A Rust toolchain compatible with the version in `Cargo.toml`
+- A terminal with ANSI escape-sequence support
+- Python 3.8+ only when using AI completion
 
-## Table of contents
-
-- [Installation](#installation)
-  - [With cargo](#with-cargo)
-  - [Arch User Repository (Arch Linux)](#arch-user-repository-arch-linux)
-  - [Android (with Termux)](#android-with-termux)
-  - [Fedora/CentOS](#fedoracentos)
-  - [NetBSD](#netbsd)
-  - [Flatpak](#flatpak)
-- [Usage](#usage)
-  - [AI completion prompt (local)](#ai-completion-prompt-local)
-  - [Keyboard shortcuts](#keyboard-shortcuts)
-  - [Configuration](#configuration)
-    - [Global configuration](#global-configuration)
-    - [Syntax highlighting](#syntax-highlighting)
-- [Comparison with kilo](#comparison-with-kilo)
-- [Contributing](#contributing)
-- [Dependencies](#dependencies)
-- [Why Kibi?](#why-kibi)
-- [Contributors](#contributors)
-- [License](#license)
-
-## Installation
-
-<!-- markdownlint-disable no-inline-html -->
-<a href="https://repology.org/project/kibi/versions">
-    <img src="https://repology.org/badge/vertical-allrepos/kibi.svg"
-    alt="Packaging status" align="right">
-</a>
-<!-- markdownlint-enable no-inline-html -->
-
-### With `cargo`
-
-You can install Kibi with [`cargo`](https://github.com/rust-lang/cargo/):
+Build Maies from this repository:
 
 ```bash
-cargo install kibi
-```
-
-Syntax highlighting configuration files are available in the
-[`syntax.d`](syntax.d) directory of this repository. They need to be placed in
-one of the configuration directories mentioned in the
-[Configuration/Syntax Highlighting](#syntax-highlighting) section.
-
-For instance:
-
-```bash
-cd ~/repos
-git clone https://github.com/ilai-deutel/kibi.git
-mkdir -p ~/.local/share/kibi/
-ln -sr ./kibi/syntax.d ~/.local/share/kibi/syntax.d
-```
-
-### Arch User Repository (Arch Linux)
-
-3 packages are available on the AUR:
-[`kibi`](https://aur.archlinux.org/packages/kibi) and
-[`kibi-bin`](https://aur.archlinux.org/packages/kibi-bin).
-[`kibi-git`](https://aur.archlinux.org/packages/kibi-git).
-
-<!-- markdownlint-disable-next-line no-inline-html -->
-<details><summary>Installation instructions: <code>kibi</code></summary>
-
-1. Installation with an AUR helper, for instance using `paru`:
-
-   ```bash
-   paru -Syu kibi
-   ```
-
-2. Install manually with `makepkg`:
-
-   ```bash
-   git clone https://aur.archlinux.org/kibi.git
-   cd kibi
-   makepkg -si
-   ```
-
-</details>
-<!-- markdownlint-disable-next-line no-inline-html -->
-<details><summary>Installation instructions: <code>kibi-bin</code></summary>
-
-1. Installation with an AUR helper, for instance using `paru`:
-
-   ```bash
-   paru -Syu --pgpfetch kibi-bin
-   ```
-
-2. Install manually with `makepkg`:
-
-   ```bash
-   gpg --keyserver keys.openpgp.org  --recv-keys 102588418FF7E165696490A206E8A973494808A2
-   git clone https://aur.archlinux.org/kibi-bin.git
-   cd kibi-bin
-   makepkg -si
-   ```
-
-</details>
-
-<!-- markdownlint-disable-next-line no-inline-html -->
-<details><summary>Installation instructions: <code>kibi-git</code></summary>
-
-1. Installation with an AUR helper, for instance using `paru`:
-
-   ```bash
-   paru -Syu kibi-git
-   ```
-
-2. Install manually with `makepkg`:
-
-   ```bash
-   git clone https://aur.archlinux.org/kibi-git.git
-   cd kibi-git
-   makepkg -si
-   ```
-
-</details>
-
-### Android (with Termux)
-
-Kibi is available as [a Termux package](https://github.com/termux/termux-packages/tree/master/packages/kibi).
-
-<details><summary>Installation instructions</summary>
-
-1. Install Termux:
-
-   [![Get it on F-Droid"](https://user-images.githubusercontent.com/10098207/80576418-fe805600-89b9-11ea-82a5-7dc00c0ccc50.png)](https://f-droid.org/repository/browse/?fdid=com.termux)
-   [![Get it on Google Play"](https://user-images.githubusercontent.com/10098207/80576344-e27cb480-89b9-11ea-9fa6-08ec94af10cb.png)](https://play.google.com/store/apps/details?id=com.termux)
-
-2. Install Kibi within Termux: `pkg install kibi`
-
-</details>
-
-### Fedora/CentOS
-
-The package is available in COPR as [`atim/kibi`](https://copr.fedorainfracloud.org/coprs/atim/kibi).
-
-<details><summary>Installation instructions</summary>
-
-```bash
-sudo dnf copr enable atim/kibi -y
-sudo dnf install kibi
-```
-
-</details>
-
-### NetBSD
-
-Kibi is available from [the official repos](https://cdn.netbsd.org/pub/pkgsrc/current/pkgsrc/editors/kibi/README.html).
-
-<details><summary>Installation instructions</summary>
-
-Install using:
-
-```bash
-pkgin install kibi
-```
-
-or build from source:
-
-```bash
-cd /usr/pkgsrc/editors/kibi
-make install
-```
-
-</details>
-
-### Flatpak
-
-Kibi is available [on Flathub](https://flathub.org/en/apps/com.github.ilai_deutel.kibi).
-
-<details><summary>Command line instructions</summary>
- The flatpak can be installed using:
-
-```bash
-flatpak install flathub com.github.ilai_deutel.kibi
-```
-
-You can then run Kibi with:
-
-```bash
-flatpak run com.github.ilai_deutel.kibi
-```
-
-</details>
-
-## Usage
-
-```bash
-kibi              # Start an new text buffer
-kibi <file path>  # Open a file
-kibi --version    # Print version information and exit
-```
-
-### AI completion prompt (local)
-
-This fork can pass a custom system prompt to `scripts/completion_agent.py`.
-
-Build the release binary:
-
-```bash
+git clone https://github.com/AI10x/maies.git
+cd maies
 cargo build --release
+./target/release/kibi --version
 ```
 
-Run with a prompt file (preferred):
+To install the `kibi` executable from this fork into Cargo's binary directory:
 
 ```bash
-KIBI_SYSTEM_PROMPT_FILE="/absolute/path/to/system_prompt.txt" ./target/release/kibi
+cargo install --git https://github.com/AI10x/maies.git --locked
 ```
 
-Run with an inline prompt string:
+Do not use `cargo install kibi` when you want Maies; that command installs the
+upstream Kibi crate from crates.io.
+
+## How To Use It
+
+Open an empty buffer or an existing file:
 
 ```bash
-KIBI_SYSTEM_PROMPT="You are concise.\nReturn only code." ./target/release/kibi
+kibi
+kibi path/to/file.rs
+kibi -- --file-name-starting-with-a-dash
 ```
 
-`KIBI_SYSTEM_PROMPT_FILE` takes priority over `KIBI_SYSTEM_PROMPT`.
+Type normally, use arrow keys to move, press `Ctrl+S` to save, and press
+`Ctrl+Q` to quit. Unsaved changes require repeated quit confirmation according
+to `quit_times` in the configuration file.
 
-If you use a shell alias, point it at the release binary:
+### Selection And Clipboard
+
+Hold Shift while pressing an arrow key to select text. Selected text is shown
+with inverse video. Typing, Backspace, Delete, Enter, or Tab replaces or removes
+the selection.
+
+The current clipboard is row-oriented rather than a system clipboard:
+
+- `Ctrl+C` copies the entire current row.
+- `Ctrl+X` cuts the entire current row.
+- `Ctrl+V` inserts the copied row below the cursor.
+
+Copy and cut do not currently copy only the highlighted selection.
+
+### AI Completion
+
+AI completion runs through the embedded `scripts/completion_agent.py` helper.
+Install its optional dependency in a virtual environment:
 
 ```bash
-alias kibi="/home/emmanuel/projects/ai10xdev/code.dev/kibi/target/release/kibi"
+python3 -m venv .venv
+.venv/bin/pip install -r requirements-ai.txt
+export MAIES_PYTHON="$PWD/.venv/bin/python"
 ```
 
-Then reload your shell config (`source ~/.bashrc` or `source ~/.zshrc`) and verify with `type -a kibi`.
+If you installed only the executable rather than cloning the repository, install
+the optional dependency directly with `python3 -m pip install "openai>=1,<2"`.
 
-### Keyboard shortcuts
+For OpenAI, configure a model and API key:
 
-| Keyboard shortcut              | Description                                                   |
-| ------------------------------ | ------------------------------------------------------------- |
-| <kbd>Ctrl</kbd> + <kbd>F</kbd> | Incremental search; use arrows to navigate                    |
-| <kbd>Ctrl</kbd> + <kbd>S</kbd> | Save the buffer to the current file, or specify the file path |
-| <kbd>Ctrl</kbd> + <kbd>G</kbd> | Go to `<line number>[:<column number>]` position              |
-| <kbd>Ctrl</kbd> + <kbd>Q</kbd> | Quit                                                          |
-| <kbd>Ctrl</kbd> + <kbd>D</kbd> | Duplicate the current row                                     |
-| <kbd>Ctrl</kbd> + <kbd>E</kbd> | Execute an external command and paste its output              |
-| <kbd>Ctrl</kbd> + <kbd>R</kbd> | Remove an entire line                                         |
-| <kbd>Ctrl</kbd> + <kbd>C</kbd> | Copies the entire line                                        |
-| <kbd>Ctrl</kbd> + <kbd>X</kbd> | Cuts the entire line                                          |
-| <kbd>Ctrl</kbd> + <kbd>V</kbd> | Will paste the copied line                                    |
-| <kbd>Ctrl</kbd> + <kbd>←</kbd> | Moves cursor to previous word                                 |
-| <kbd>Ctrl</kbd> + <kbd>→</kbd> | Moves cursor to next word                                     |
-| <kbd>Ctrl</kbd> + <kbd>/</kbd> | Comment or uncomment the current line                         |
+```bash
+export OPENAI_API_KEY="your-api-key"
+export MAIES_AI_MODEL="gpt-4.1-mini"
+kibi --ai path/to/file.rs
+```
 
-### Configuration
+For Azure OpenAI, configure the Azure endpoint, API version, key, and deployment
+name:
 
-#### Global configuration
+```bash
+export AZURE_OPENAI_ENDPOINT="https://your-resource.openai.azure.com"
+export AZURE_OPENAI_API_KEY="your-api-key"
+export AZURE_OPENAI_API_VERSION="your-api-version"
+export MAIES_AI_MODEL="your-deployment-name"
+kibi --ai path/to/file.rs
+```
 
-Kibi can be configured using a configuration file. It must follow this format:
+`OPENAI_BASE_URL` can point the standard OpenAI client at a compatible API.
+`DEPLOYMENT_NAME` is accepted as a fallback when `MAIES_AI_MODEL` is unset.
+
+After editing pauses for 500 ms at the end of a line, Maies sends up to the
+previous 100 lines and the current line prefix to the configured provider. The
+first line of the response appears as gray ghost text:
+
+- Press Tab to insert the full suggestion, including additional lines.
+- Press any other editing or navigation key to dismiss the suggestion.
+- Continue typing at a new position to request another suggestion.
+
+Use a custom system prompt directly:
+
+```bash
+kibi --ai --system-prompt "Return only a concise code continuation." path/to/file.rs
+```
+
+Or load a prompt from a file:
+
+```bash
+kibi --ai --system-prompt-file /absolute/path/to/prompt.txt path/to/file.rs
+```
+
+The equivalent environment variables are `MAIES_SYSTEM_PROMPT` and
+`MAIES_SYSTEM_PROMPT_FILE`. Prompt precedence is command-line prompt file,
+command-line prompt, environment prompt file, environment prompt, then the
+built-in completion prompt.
+
+> **Privacy:** AI mode sends document context to the configured OpenAI-compatible
+> service. Do not enable it for source or text that you are not permitted to
+> share. AI mode is opt-in so opening a file normally never sends its contents.
+
+## Keyboard Shortcuts
+
+| Shortcut | Action |
+| --- | --- |
+| `Ctrl+S` | Save, prompting for a path for a new buffer |
+| `Ctrl+Q` | Quit, with confirmation for unsaved changes |
+| `Ctrl+F` | Incremental search; arrows move between matches |
+| `Ctrl+G` | Go to `line[:column]` |
+| `Ctrl+D` | Duplicate the current row |
+| `Ctrl+R` | Remove the current row |
+| `Ctrl+C` | Copy the current row to the internal clipboard |
+| `Ctrl+X` | Cut the current row to the internal clipboard |
+| `Ctrl+V` | Paste the copied row below the cursor |
+| `Ctrl+E` | Run an external command and insert its standard output |
+| `Ctrl+/` | Comment or uncomment the current row when supported |
+| `Ctrl+Left` | Move to the previous word |
+| `Ctrl+Right` | Move to the next word |
+| `Shift+Arrow` | Extend a text selection |
+| `Escape` | Clear the current selection |
+| `Tab` | Accept ghost text, or insert a tab when none is visible |
+
+## Configuration
+
+The editor reads an INI-style `config.ini`:
 
 ```ini
-# The size of a tab. Must be > 0.
+# Number of columns represented by a tab; must be greater than zero.
 tab_stop=4
-# The number of confirmations needed before quitting, when changes have been
-# made since the file was last changed.
+# Quit attempts required when the buffer has unsaved changes.
 quit_times=2
-# The duration for which messages are shown in the status bar, in seconds.
+# Seconds for which status messages remain visible.
 message_duration=3
-# Whether to show line numbers.
+# Display line numbers when the terminal is wide enough.
 show_line_numbers=true
 ```
 
-The location of these files is described below.
+Configuration locations:
 
-##### Linux / macOS
+| Platform | User configuration |
+| --- | --- |
+| Linux/macOS | `$XDG_CONFIG_HOME/kibi/config.ini` or `~/.config/kibi/config.ini` |
+| Windows | `%APPDATA%\Kibi\config.ini` |
 
-kibi follows the [XDG Base Directory Specification](https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html):
+On Linux and macOS, system configuration is also searched under
+`$XDG_CONFIG_DIRS/kibi`, `/etc/xdg/kibi`, and `/etc/kibi`.
 
-- A user-level configuration file can be located at
-  `$XDG_CONFIG_HOME/kibi/config.ini` if environment variable `$XDG_CONFIG_HOME`
-  is defined, `~/.config/kibi/config.ini` otherwise.
-- A system-wide configuration file can be located at
-  `$XDG_CONFIG_DIRS/kibi/config.ini` if environment variable
-  `$XDG_CONFIG_DIRS` is defined, `/etc/kibi/config.ini` or
-  `/etc/xdg/kibi/config.ini` otherwise.
+### Syntax Highlighting
 
-##### Windows
+Language definitions are INI files in `syntax.d/`. Maies chooses a definition by
+matching the opened file's extension. Install the definitions for a source
+checkout with:
 
-A configuration file can be located at `%APPDATA%\Kibi\config.ini`.
-
-#### Syntax highlighting
-
-Syntax highlighting can be configured using INI files which follow this format:
-
-```ini
-### /usr/share/kibi/syntax.d/rust.ini ###
-# Kibi syntax highlighting configuration for Rust
-
-name=Rust
-extensions=rs
-highlight_numbers=true
-singleline_string_quotes="
-singleline_comment_start=//
-multiline_comment_delims=/*, */
-; In Rust, the multi-line string delimiter is the same as the single-line string
-; delimiter
-multiline_string_delim="
-; https://doc.rust-lang.org/book/appendix-01-keywords.html
-keywords_1=abstract, as, async, await, become, box, break, const, continue, crate, do, dyn, else, enum, extern, false, final, fn, for, if, impl, in, let, loop, macro, match, mod, move, mut, override, priv, pub, ref, return, self, Self, static, struct, super, trait, true, try, type, typeof, unsafe, unsized, use, virtual, where, while, yield
-keywords_2=i8, i16, i32, i64, i128, isize, u8, u16, u32, u36, u128, usize, f32, f64, bool, char, str
+```bash
+mkdir -p ~/.local/share/kibi
+ln -s "$PWD/syntax.d" ~/.local/share/kibi/syntax.d
 ```
 
-The location of these files is described below.
+User syntax directories are `$XDG_DATA_HOME/kibi/syntax.d` or
+`~/.local/share/kibi/syntax.d` on Linux/macOS and
+`%APPDATA%\Kibi\syntax.d` on Windows.
 
-##### Linux / macOS
+`cargo install` installs only the executable. If you did not keep a source
+checkout, download the definitions separately:
 
-kibi follows the [XDG Base Directory Specification](https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html):
+```bash
+git clone --depth 1 https://github.com/AI10x/maies.git /tmp/maies
+mkdir -p ~/.local/share/kibi
+cp -R /tmp/maies/syntax.d ~/.local/share/kibi/syntax.d
+```
 
-- User-level syntax highlighting configuration files can be located at `$XDG_DATA_HOME/kibi/syntax.d/<file_name>.ini`
-  if environment variable `$XDG_DATA_HOME` is defined,
-  `~/.local/share/kibi/syntax.d/<file_name>.ini` otherwise.
-- System-wide syntax highlighting configuration files can be located at `$XDG_DATA_DIRS/kibi/syntax.d/<file_name>.ini`
-  if environment variable `$XDG_DATA_DIRS` is defined,
-  `/usr/local/share/kibi/syntax.d/<file_name>.ini` or
-  `/usr/share/kibi/syntax.d/<file_name>.ini` otherwise.
+Each language file can define extensions, number highlighting, string and
+comment delimiters, and two keyword classes. See `syntax.d/rust.ini` for a full
+example.
 
-##### Windows
+## How The Source Is Organized
 
-Syntax highlighting configuration files can be located at `%APPDATA%\Kibi\syntax.d\<file_name>.ini`.
+Maies is a Rust binary with a small library facade. Most behavior is deliberately
+kept in direct data structures and functions rather than a large framework.
 
-## Comparison with `kilo`
+| Path | Responsibility |
+| --- | --- |
+| `src/main.rs` | Parses command-line options and starts the editor. |
+| `src/lib.rs` | Exposes the supported library entry points and selects platform modules. |
+| `src/editor.rs` | Owns editor state, the input loop, editing commands, prompts, rendering coordination, selection, and AI process lifecycle. |
+| `src/row.rs` | Stores raw row bytes, rendered text, byte-to-screen-column maps, and per-character highlighting. |
+| `src/syntax.rs` | Parses language definitions and assigns syntax highlight classes. |
+| `src/config.rs` | Loads and validates global INI configuration. |
+| `src/terminal.rs` | Provides terminal-size fallback and terminal restoration. |
+| `src/unix.rs` | Implements UNIX raw mode, resize signals, and paths. |
+| `src/windows.rs` | Implements Windows console modes and paths. |
+| `src/wasi.rs` | Supplies the WASI platform adapter. |
+| `src/xdg.rs` | Resolves XDG configuration and data directories. |
+| `scripts/completion_agent.py` | Connects the Rust editor to OpenAI or Azure OpenAI. |
+| `syntax.d/` | Contains language-specific highlighting definitions. |
+| `tests/cli.rs` | Exercises command-line parsing and process exit behavior. |
+| `fuzz/` | Fuzzes configuration loading. |
+| `ci/` and `.github/workflows/` | Build, test, security, and release automation inherited from Kibi. |
 
-This project is inspired by [`kilo`](https://github.com/antirez/kilo), a text
-editor written by Salvatore Sanfilippo (antirez) in C, and
-[this tutorial](https://viewsourcecode.org/snaptoken/kilo/) (also in C).
+### Editing And Rendering Flow
 
-`kibi` provides additional features:
+1. `main.rs` parses a file path and optional AI settings.
+2. `editor.rs` enters raw terminal mode and loads the document into `Vec<Row>`.
+3. Terminal bytes are decoded into logical keys such as arrows, Delete, and
+   control-key commands.
+4. Each key mutates the editor state and affected rows.
+5. `Row::update` rebuilds rendered text, UTF-8/display-column mappings, and
+   syntax highlighting.
+6. The editor composes rows, status information, messages, selections, and ghost
+   text into one ANSI output buffer and writes it to the alternate screen.
+7. Saving serializes the row byte buffers with newline separators.
 
-- Support for UTF-8 characters
-- Compatibility with Windows
-- Command to jump to a given row/column
-- Handle window resize (UNIX only)
-- Parsing configuration files: global editor configuration with validation, language-specific
-  syntax highlighting configuration (38 languages and counting)
-- Display line numbers on the left of the screen; display file size in the status
-  bar
-- Syntax highlighting: multi-line strings
-- _Save as_ prompt when no file name has been provided
-- Command to duplicate the current row, to quickly move between words
-- Ability to execute an external command from the editor and paste its output
-- Support for end-of-options delimiter `--` (following [POSIX.1-2024 12. Utility
-  Conventions](https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/V1_chap12.html))
-- Can be used as the editor for the _`sudoers`_ file via [`visudo`](https://www.man7.org/linux/man-pages/man8/visudo.8.html)
-- Guaranteed memory safety, thanks to Rust!
-- Bug fixes
+The editor stores cursor positions as byte offsets because document rows are
+`Vec<u8>`. `Row` separately maps those byte positions to rendered terminal
+columns, accounting for UTF-8 character width and expanded tabs.
 
-## Contributing
+### AI Completion Flow
 
-Contributions of any kind are welcome! Make sure to check out the contributing guide:
-[`CONTRIBUTING.md`](CONTRIBUTING.md).
+1. AI mode starts only after explicit opt-in.
+2. After a short idle period at the end of a row, Rust builds a bounded context.
+3. Rust starts the embedded Python helper using `MAIES_PYTHON` or `python3`.
+4. Requests and responses use request IDs and byte lengths, preserving multiline
+   whitespace without relying on sentinel text.
+5. A background reader returns the response to the editor through a channel.
+6. The editor accepts the response only if its request ID and document context
+   are still current, preventing stale suggestions from being displayed.
+7. Provider and process failures are displayed in the status bar.
 
-## Dependencies
+## Development
 
-This project must remain tiny, so using advanced dependencies such as [`ncurses`](https://crates.io/crates/ncurses),
-[`toml`](https://crates.io/crates/toml) or
-[`ansi-escapes`](https://crates.io/crates/ansi-escapes) would be cheating.
+Run the standard checks from the repository root:
 
-The following dependencies provide wrappers around system calls.
+```bash
+cargo test --locked
+cargo fmt --check --all
+cargo clippy --locked --all-targets
+python3 -m py_compile scripts/completion_agent.py
+cargo package --allow-dirty
+```
 
-- On UNIX systems (Linux, macOS):
-  - `libc`
-- On Windows:
-  - `winapi`
-  - `winapi-util`
+The original Kibi project limited production Rust to 1,024 lines. Maies has
+intentionally moved beyond that constraint to support selection and AI process
+coordination, so the upstream line-count gate is not part of this fork's quality
+policy.
 
-In addition, `unicode-width` is used to determine the displayed width of Unicode
-characters. Unfortunately, there is no way around it: the
-[unicode character width table](https://github.com/unicode-rs/unicode-width/blob/3033826f8bf05e82724140a981d5941e48fce393/src/tables.rs#L52)
-is 230 lines long.
+## Troubleshooting
 
-## Why Kibi?
+- `Could not start AI agent`: set `MAIES_PYTHON` to a Python executable where
+  `requirements-ai.txt` is installed.
+- `AI agent stopped`: run the configured Python manually and verify that the
+  `openai` package and required environment variables are available.
+- Authentication or deployment errors: verify the API key, endpoint, API
+  version, and `MAIES_AI_MODEL` value for the selected provider.
+- No syntax highlighting: install or link `syntax.d` into the appropriate data
+  directory.
+- Garbled terminal after an abnormal exit: run `reset` on UNIX-like systems.
+- AI completion is currently supported on Linux and macOS. The core editor also
+  builds for Windows and WASI, but their blocking input implementations do not
+  yet wake the display when an asynchronous suggestion arrives.
 
-1. Porting the `kilo` source code from C to Rust and trying to make it idiomatic
-   was interesting
-2. Implementing new features while under the 1024-line constraint is a good challenge
-3. Most importantly, I wanted to learn Rust and this was a great project to
-   start (thanks Reddit for the idea)
+## Upstream And License
 
-## Contributors
+Maies is derived from Kibi, created by Ilaï Deutel and the
+[Kibi contributors](https://github.com/ilai-deutel/kibi#contributors). The
+upstream project was inspired by Salvatore Sanfilippo's
+[`kilo`](https://github.com/antirez/kilo).
 
-This project follows the [all-contributors](https://allcontributors.org/) specification
-([emoji key](https://allcontributors.org/docs/en/emoji-key)). Contributions of
-any kind welcome!
+The project is available under either of these licenses, at your option:
 
-<!-- ALL-CONTRIBUTORS-LIST:START - Do not remove or modify this section -->
-<!-- prettier-ignore-start -->
-<!-- markdownlint-disable -->
-<table>
-  <tbody>
-    <tr>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/ilai-deutel"><img src="https://avatars0.githubusercontent.com/u/10098207?v=4" width="100px;" alt=""/><br /><sub><b>Ilaï Deutel</b></sub></a><br /><a href="https://github.com/ilai-deutel/kibi/commits?author=ilai-deutel" title="Code">💻</a> <a href="#ideas-ilai-deutel" title="Ideas, Planning, & Feedback">🤔</a> <a href="#infra-ilai-deutel" title="Infrastructure (Hosting, Build-Tools, etc)">🚇</a> <a href="#platform-ilai-deutel" title="Packaging/porting to new platform">📦</a> <a href="#syntax-highlighting-ilai-deutel" title="Contributing to syntax highlighting configuration files">💠</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/codingonHP"><img src="https://avatars3.githubusercontent.com/u/7105293?v=4" width="100px;" alt=""/><br /><sub><b>Vishal Anand</b></sub></a><br /><a href="https://github.com/ilai-deutel/kibi/issues?q=author%3AcodingonHP" title="Bug reports">🐛</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/gsbhasin123"><img src="https://avatars2.githubusercontent.com/u/48339289?v=4" width="100px;" alt=""/><br /><sub><b>Gurjus Bhasin</b></sub></a><br /><a href="#ideas-gsbhasin123" title="Ideas, Planning, & Feedback">🤔</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/ldang0"><img src="https://avatars1.githubusercontent.com/u/1281722?v=4" width="100px;" alt=""/><br /><sub><b>Libin Dang</b></sub></a><br /><a href="https://github.com/ilai-deutel/kibi/commits?author=ldang0" title="Code">💻</a> <a href="https://github.com/ilai-deutel/kibi/issues?q=author%3Aldang0" title="Bug reports">🐛</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/andradei"><img src="https://avatars0.githubusercontent.com/u/2653546?v=4" width="100px;" alt=""/><br /><sub><b>Isaac Andrade</b></sub></a><br /><a href="#ideas-andradei" title="Ideas, Planning, & Feedback">🤔</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/frjol"><img src="https://avatars2.githubusercontent.com/u/4422813?v=4" width="100px;" alt=""/><br /><sub><b>frjol</b></sub></a><br /><a href="https://github.com/ilai-deutel/kibi/issues?q=author%3Afrjol" title="Bug reports">🐛</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/tim77"><img src="https://avatars0.githubusercontent.com/u/5614476?v=4" width="100px;" alt=""/><br /><sub><b>Artem Polishchuk</b></sub></a><br /><a href="#platform-tim77" title="Packaging/porting to new platform">📦</a></td>
-    </tr>
-    <tr>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/malbarbo"><img src="https://avatars3.githubusercontent.com/u/1678126?v=4" width="100px;" alt=""/><br /><sub><b>Marco A L Barbosa</b></sub></a><br /><a href="https://github.com/ilai-deutel/kibi/commits?author=malbarbo" title="Code">💻</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/voidpin"><img src="https://avatars3.githubusercontent.com/u/35956139?v=4" width="100px;" alt=""/><br /><sub><b>pin</b></sub></a><br /><a href="#platform-voidpin" title="Packaging/porting to new platform">📦</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/Uniminin"><img src="https://avatars3.githubusercontent.com/u/42061747?v=4" width="100px;" alt=""/><br /><sub><b>Uniminin</b></sub></a><br /><a href="#syntax-highlighting-Uniminin" title="Contributing to syntax highlighting configuration files">💠</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/Woomy4680-exe"><img src="https://avatars.githubusercontent.com/u/57042741?v=4" width="100px;" alt=""/><br /><sub><b>Woomy4680-exe</b></sub></a><br /><a href="https://github.com/ilai-deutel/kibi/issues?q=author%3AWoomy4680-exe" title="Bug reports">🐛</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/quadroli"><img src="https://avatars.githubusercontent.com/u/58091631?v=4" width="100px;" alt=""/><br /><sub><b>quadroli</b></sub></a><br /><a href="#syntax-highlighting-quadroli" title="Contributing to syntax highlighting configuration files">💠</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/m0lese"><img src="https://avatars.githubusercontent.com/u/86180257?v=4" width="100px;" alt=""/><br /><sub><b>molese</b></sub></a><br /><a href="#syntax-highlighting-m0lese" title="Contributing to syntax highlighting configuration files">💠</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/imreyesjorge"><img src="https://avatars.githubusercontent.com/u/40706868?v=4" width="100px;" alt=""/><br /><sub><b>Jorge Reyes</b></sub></a><br /><a href="https://github.com/ilai-deutel/kibi/commits?author=imreyesjorge" title="Code">💻</a></td>
-    </tr>
-    <tr>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/gVirtu"><img src="https://avatars.githubusercontent.com/u/15658199?v=4" width="100px;" alt=""/><br /><sub><b>Giancarlo França</b></sub></a><br /><a href="https://github.com/ilai-deutel/kibi/commits?author=gVirtu" title="Tests">⚠️</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/ilmanzo"><img src="https://avatars.githubusercontent.com/u/1872816?v=4" width="100px;" alt=""/><br /><sub><b>Andrea Manzini</b></sub></a><br /><a href="https://github.com/ilai-deutel/kibi/commits?author=ilmanzo" title="Code">💻</a> <a href="https://github.com/ilai-deutel/kibi/commits?author=ilmanzo" title="Tests">⚠️</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/Arkaeriit"><img src="https://avatars.githubusercontent.com/u/47985708?v=4" width="100px;" alt=""/><br /><sub><b>Maxime Bouillot</b></sub></a><br /><a href="#syntax-highlighting-Arkaeriit" title="Contributing to syntax highlighting configuration files">💠</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/john-sharratt"><img src="https://avatars.githubusercontent.com/u/17711537?v=4" width="100px;" alt=""/><br /><sub><b>Johnathan Sharratt</b></sub></a><br /><a href="https://github.com/ilai-deutel/kibi/commits?author=john-sharratt" title="Code">💻</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/No-one-important"><img src="https://avatars.githubusercontent.com/u/72458263?v=4" width="100px;" alt=""/><br /><sub><b>No-one-important</b></sub></a><br /><a href="https://github.com/ilai-deutel/kibi/commits?author=No-one-important" title="Code">💻</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/RobertGrancsa"><img src="https://avatars.githubusercontent.com/u/22158239?v=4" width="100px;" alt=""/><br /><sub><b>Robert Grancsa</b></sub></a><br /><a href="https://github.com/ilai-deutel/kibi/commits?author=RobertGrancsa" title="Code">💻</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/sogreatandpowerfull"><img src="https://avatars.githubusercontent.com/u/114095654?v=4" width="100px;" alt=""/><br /><sub><b>SoGreatAndPowerful</b></sub></a><br /><a href="#syntax-highlighting-sogreatandpowerfull" title="Contributing to syntax highlighting configuration files">💠</a></td>
-    </tr>
-    <tr>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/carol-mb"><img src="https://avatars.githubusercontent.com/u/117681554?v=4" width="100px;" alt=""/><br /><sub><b>Mihai-Carol Bazga</b></sub></a><br /><a href="https://github.com/ilai-deutel/kibi/commits?author=carol-mb" title="Code">💻</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/NickGeek"><img src="https://avatars.githubusercontent.com/u/3462055?v=4" width="100px;" alt=""/><br /><sub><b>Nick Webster</b></sub></a><br /><a href="https://github.com/ilai-deutel/kibi/commits?author=NickGeek" title="Code">💻</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/hezhizhen"><img src="https://avatars.githubusercontent.com/u/7611700?v=4" width="100px;" alt=""/><br /><sub><b>Zhizhen He</b></sub></a><br /><a href="https://github.com/ilai-deutel/kibi/commits?author=hezhizhen" title="Documentation">📖</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/CosminGGeorgescu"><img src="https://avatars.githubusercontent.com/u/95082750?v=4" width="100px;" alt=""/><br /><sub><b>CosminGGeorgescu</b></sub></a><br /><a href="https://github.com/ilai-deutel/kibi/commits?author=CosminGGeorgescu" title="Code">💻</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/TanvirOnGH"><img src="https://avatars.githubusercontent.com/u/138336161?v=4" width="100px;" alt=""/><br /><sub><b>Tanvir</b></sub></a><br /><a href="#syntax-highlighting-TanvirOnGH" title="Contributing to syntax highlighting configuration files">💠</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/BogdanPaul15"><img src="https://avatars.githubusercontent.com/u/62438221?v=4" width="100px;" alt=""/><br /><sub><b>Prisacaru Bogdan-Paul</b></sub></a><br /><a href="https://github.com/ilai-deutel/kibi/commits?author=BogdanPaul15" title="Tests">⚠️</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/auzkok"><img src="https://avatars.githubusercontent.com/u/35302680?v=4" width="100px;" alt=""/><br /><sub><b>auzkok</b></sub></a><br /><a href="#syntax-highlighting-auzkok" title="Contributing to syntax highlighting configuration files">💠</a></td>
-    </tr>
-    <tr>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/razvanrus2003"><img src="https://avatars.githubusercontent.com/u/69893593?v=4" width="100px;" alt=""/><br /><sub><b>Razvan Rus</b></sub></a><br /><a href="https://github.com/ilai-deutel/kibi/commits?author=razvanrus2003" title="Code">💻</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/Jan9103"><img src="https://avatars.githubusercontent.com/u/55753387?v=4" width="100px;" alt=""/><br /><sub><b>Jan9103</b></sub></a><br /><a href="https://github.com/ilai-deutel/kibi/commits?author=Jan9103" title="Code">💻</a> <a href="#syntax-highlighting-Jan9103" title="Contributing to syntax highlighting configuration files">💠</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/joshka"><img src="https://avatars.githubusercontent.com/u/381361?v=4" width="100px;" alt=""/><br /><sub><b>Josh McKinney</b></sub></a><br /><a href="#infra-joshka" title="Infrastructure (Hosting, Build-Tools, etc)">🚇</a> <a href="https://github.com/ilai-deutel/kibi/commits?author=joshka" title="Code">💻</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/zamazan4ik"><img src="https://avatars.githubusercontent.com/u/7355383?v=4" width="100px;" alt=""/><br /><sub><b>Alexander Zaitsev</b></sub></a><br /><a href="#infra-zamazan4ik" title="Infrastructure (Hosting, Build-Tools, etc)">🚇</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/BanuAdrian"><img src="https://avatars.githubusercontent.com/u/66678108?v=4" width="100px;" alt=""/><br /><sub><b>Adrian Banu</b></sub></a><br /><a href="https://github.com/ilai-deutel/kibi/commits?author=BanuAdrian" title="Tests">⚠️</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/vanillajonathan"><img src="https://avatars.githubusercontent.com/u/10222521?v=4" width="100px;" alt=""/><br /><sub><b>Jonathan</b></sub></a><br /><a href="#syntax-highlighting-vanillajonathan" title="Contributing to syntax highlighting configuration files">💠</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/lythd"><img src="https://avatars.githubusercontent.com/u/22566088?v=4" width="100px;" alt=""/><br /><sub><b>ly</b></sub></a><br /><a href="https://github.com/ilai-deutel/kibi/commits?author=lythd" title="Code">💻</a></td>
-    </tr>
-    <tr>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/kianmeng"><img src="https://avatars.githubusercontent.com/u/134518?v=4" width="100px;" alt=""/><br /><sub><b>Kian-Meng Ang</b></sub></a><br /><a href="https://github.com/ilai-deutel/kibi/commits?author=kianmeng" title="Documentation">📖</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/iamdhakrey"><img src="https://avatars.githubusercontent.com/u/35266081?v=4" width="100px;" alt=""/><br /><sub><b>Hrithik Dhakrey</b></sub></a><br /><a href="https://github.com/ilai-deutel/kibi/commits?author=iamdhakrey" title="Code">💻</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/kenderipa"><img src="https://avatars.githubusercontent.com/u/52325831?v=4" width="100px;" alt=""/><br /><sub><b>kenderipa</b></sub></a><br /><a href="#ideas-kenderipa" title="Ideas, Planning, & Feedback">🤔</a> <a href="https://github.com/ilai-deutel/kibi/issues?q=author%3Akenderipa" title="Bug reports">🐛</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/ahaoboy"><img src="https://avatars.githubusercontent.com/u/19884146?v=4" width="100px;" alt=""/><br /><sub><b>阿豪</b></sub></a><br /><a href="#infra-ahaoboy" title="Infrastructure (Hosting, Build-Tools, etc)">🚇</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/luizvbo"><img src="https://avatars.githubusercontent.com/u/15856439?v=4" width="100px;" alt=""/><br /><sub><b>Luiz Otavio Vilas Boas Oliveira</b></sub></a><br /><a href="#infra-luizvbo" title="Infrastructure (Hosting, Build-Tools, etc)">🚇</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/mihai1923"><img src="https://avatars.githubusercontent.com/u/40871834?v=4" width="100px;" alt=""/><br /><sub><b>Mihai-Laurențiu Țucă</b></sub></a><br /><a href="https://github.com/ilai-deutel/kibi/commits?author=mihai1923" title="Code">💻</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/cosmincalinov"><img src="https://avatars.githubusercontent.com/u/137818916?v=4" width="100px;" alt=""/><br /><sub><b>Cosmin</b></sub></a><br /><a href="https://github.com/ilai-deutel/kibi/commits?author=cosmincalinov" title="Tests">⚠️</a></td>
-    </tr>
-    <tr>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/CristianPreda1609"><img src="https://avatars.githubusercontent.com/u/120663023?v=4" width="100px;" alt=""/><br /><sub><b>CristianPreda1609</b></sub></a><br /><a href="https://github.com/ilai-deutel/kibi/commits?author=CristianPreda1609" title="Tests">⚠️</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/Cristian-Andrei-Pomenea"><img src="https://avatars.githubusercontent.com/u/189586799?v=4" width="100px;" alt=""/><br /><sub><b>Pomenea Cristian-Andrei</b></sub></a><br /><a href="https://github.com/ilai-deutel/kibi/commits?author=Cristian-Andrei-Pomenea" title="Code">💻</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/CalinCodes"><img src="https://avatars.githubusercontent.com/u/168958070?v=4" width="100px;" alt=""/><br /><sub><b>Călin Fota</b></sub></a><br /><a href="https://github.com/ilai-deutel/kibi/commits?author=CalinCodes" title="Code">💻</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/stefanpeiculeasa"><img src="https://avatars.githubusercontent.com/u/176714001?v=4" width="100px;" alt=""/><br /><sub><b>Peiculeasa Sergiu-Ștefan</b></sub></a><br /><a href="https://github.com/ilai-deutel/kibi/commits?author=stefanpeiculeasa" title="Code">💻</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/rtczza"><img src="https://avatars.githubusercontent.com/u/41325712?v=4" width="100px;" alt=""/><br /><sub><b>ken</b></sub></a><br /><a href="https://github.com/ilai-deutel/kibi/commits?author=rtczza" title="Code">💻</a></td>
-    </tr>
-  </tbody>
-</table>
-
-<!-- markdownlint-restore -->
-<!-- prettier-ignore-end -->
-
-<!-- ALL-CONTRIBUTORS-LIST:END -->
-
-## License
-
-This project is licensed under either of
-
-- [Apache License, Version 2.0](LICENSE-APACHE)
+- [Apache License 2.0](LICENSE-APACHE)
 - [MIT License](LICENSE-MIT)
-
-at your option.

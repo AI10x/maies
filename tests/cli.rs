@@ -62,6 +62,7 @@ fn invalid_option(#[case] args: &[&str]) -> Result<(), Box<dyn std::error::Error
 
 #[rstest]
 #[case(&["--system-prompt-file"])]
+#[case(&["--system-prompt"])]
 fn missing_option_value(#[case] args: &[&str]) -> Result<(), Box<dyn std::error::Error>> {
     let output = run_kibi(args)?;
     assert!(!output.status.success());
@@ -70,7 +71,7 @@ fn missing_option_value(#[case] args: &[&str]) -> Result<(), Box<dyn std::error:
 }
 
 #[rstest]
-#[case(&["--system-prompt"])]
+#[case(&["--ai"])]
 #[case(&["--system-prompt", "You are concise."])]
 #[case(&["--system-prompt-file", "/tmp/system_prompt.txt"])]
 #[case(&["--system-prompt", "You are concise.", "abc"])]
