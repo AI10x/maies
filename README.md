@@ -23,7 +23,7 @@ SPDX-License-Identifier: MIT or Apache-2.0
 [![Rust Report Card](https://rust-reportcard.xuri.me/badge/github.com/ilai-deutel/kibi)](https://rust-reportcard.xuri.me/report/github.com/ilai-deutel/kibi)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/ilai-deutel/kibi/badge)](https://scorecard.dev/viewer/?uri=github.com/ilai-deutel/kibi)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/11296/badge)](https://www.bestpractices.dev/projects/11296)
-[![Socket Badge](https://badge.socket.dev/cargo/package/kibi)](https://socket.dev/cargo/package/kibi)
+[![Socket Badge](https://badge.socket.dev/cargo/package/kibi/0.3.3)](https://badge.socket.dev/cargo/package/kibi/0.3.3)
 [![SLSA 3](https://slsa.dev/images/gh-badge-level3.svg)](https://slsa.dev)
 [![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-3.0-5E0D73.svg?logo=contributorcovenant)](CODE_OF_CONDUCT.md)<!-- ALL-CONTRIBUTORS-BADGE:START - Do not remove or modify this section -->
 [![All Contributors](https://img.shields.io/badge/all_contributors-47-orange.svg)](#contributors)
@@ -58,6 +58,7 @@ Contributions are welcome! Be careful to stay below the 1024-line limit...
   - [NetBSD](#netbsd)
   - [Flatpak](#flatpak)
 - [Usage](#usage)
+  - [AI completion prompt (local)](#ai-completion-prompt-local)
   - [Keyboard shortcuts](#keyboard-shortcuts)
   - [Configuration](#configuration)
     - [Global configuration](#global-configuration)
@@ -239,6 +240,38 @@ kibi              # Start an new text buffer
 kibi <file path>  # Open a file
 kibi --version    # Print version information and exit
 ```
+
+### AI completion prompt (local)
+
+This fork can pass a custom system prompt to `scripts/completion_agent.py`.
+
+Build the release binary:
+
+```bash
+cargo build --release
+```
+
+Run with a prompt file (preferred):
+
+```bash
+KIBI_SYSTEM_PROMPT_FILE="/absolute/path/to/system_prompt.txt" ./target/release/kibi
+```
+
+Run with an inline prompt string:
+
+```bash
+KIBI_SYSTEM_PROMPT="You are concise.\nReturn only code." ./target/release/kibi
+```
+
+`KIBI_SYSTEM_PROMPT_FILE` takes priority over `KIBI_SYSTEM_PROMPT`.
+
+If you use a shell alias, point it at the release binary:
+
+```bash
+alias kibi="/home/emmanuel/projects/ai10xdev/code.dev/kibi/target/release/kibi"
+```
+
+Then reload your shell config (`source ~/.bashrc` or `source ~/.zshrc`) and verify with `type -a kibi`.
 
 ### Keyboard shortcuts
 

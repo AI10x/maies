@@ -61,6 +61,29 @@ fn invalid_option(#[case] args: &[&str]) -> Result<(), Box<dyn std::error::Error
 }
 
 #[rstest]
+#[case(&["--system-prompt-file"])]
+fn missing_option_value(#[case] args: &[&str]) -> Result<(), Box<dyn std::error::Error>> {
+    let output = run_kibi(args)?;
+    assert!(!output.status.success());
+    assert_eq!(output.stderr, format!("Error: MissingOptionValue(\"{}\")\n", args[0]));
+    Ok(())
+}
+
+#[rstest]
+#[case(&["--system-prompt"])]
+#[case(&["--system-prompt", "You are concise."])]
+#[case(&["--system-prompt-file", "/tmp/system_prompt.txt"])]
+#[case(&["--system-prompt", "You are concise.", "abc"])]
+#[case(&["--system-prompt-file", "/tmp/system_prompt.txt", "abc"])]
+fn with_completion_prompt_options(#[case] args: &[&str]) -> Result<(), Box<dyn std::error::Error>> {
+    // Can't test without a terminal
+    let output = run_kibi(args)?;
+    assert!(!output.status.success());
+    assert!(output.stderr.contains("Error: Io"));
+    Ok(())
+}
+
+#[rstest]
 #[case(&["abc", "def"])]
 #[case(&["abc", "--version"])]
 #[case(&["--", "abc", "def"])]

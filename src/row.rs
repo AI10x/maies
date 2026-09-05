@@ -55,7 +55,9 @@ pub struct Row {
 
 impl Row {
     /// Create a new row, containing characters `chars`.
-    pub fn new(chars: Vec<u8>) -> Self { Self { chars, cx2rx: vec![0], ..Self::default() } }
+    pub fn new(chars: Vec<u8>) -> Self {
+        Self { chars, cx2rx: vec![0], ..Self::default() }
+    }
 
     // TODO: Combine update and update_syntax
     /// Update the row: convert tabs into spaces and compute highlight symbols
@@ -88,8 +90,8 @@ impl Row {
         self.hl.clear();
         let line = self.render.as_bytes();
 
-        // Delimiters for multi-line comments and multi-line strings, as
-        // Option<&String, &String>
+        // Delimiters for multi-line comments and multi-line strings, as Option<&String,
+        // &String>
         let ml_comment_delims = syntax.ml_comment_delims.as_ref().map(|(start, end)| (start, end));
         let ml_string_delims = syntax.ml_string_delim.as_ref().map(|x| (x, x));
 
@@ -102,9 +104,8 @@ impl Row {
                 continue;
             }
 
-            // Multi-line strings and multi-line comments have the same
-            // behavior; the only differences are: the start/end delimiters, the
-            // `HLState`, the `HLType`.
+            // Multi-line strings and multi-line comments have the same behavior; the only
+            // differences are: the start/end delimiters, the `HLState`, the `HLType`.
             for (delims, mstate, mtype) in &[
                 (ml_comment_delims, HlState::MultiLineComment, HlType::MlComment),
                 (ml_string_delims, HlState::MultiLineString, HlType::MlString),
@@ -112,8 +113,7 @@ impl Row {
                 if let Some((start, end)) = delims {
                     if hl_state == *mstate {
                         if find_str(end) {
-                            // Highlight the remaining symbols of the multi line
-                            // comment end
+                            // Highlight the remaining symbols of the multi line comment end
                             self.hl.extend(repeat_n(mtype, end.len()));
                             hl_state = HlState::Normal;
                         } else {
@@ -121,8 +121,7 @@ impl Row {
                         }
                         continue 'syntax_loop;
                     } else if hl_state == HlState::Normal && find_str(start) {
-                        // Highlight the remaining symbols of the multi line
-                        // comment start
+                        // Highlight the remaining symbols of the multi line comment start
                         self.hl.extend(repeat_n(mtype, start.len()));
                         hl_state = *mstate;
                         continue 'syntax_loop;
@@ -158,10 +157,9 @@ impl Row {
             }
 
             if prev_sep {
-                // This filters makes sure that names such as "in_comment" are
-                // not partially highlighted (even though "in"
-                // is a keyword in rust) The argument is the
-                // keyword that is matched at `i`.
+                // This filters makes sure that names such as "in_comment" are not partially
+                // highlighted (even though "in" is a keyword in rust)
+                // The argument is the keyword that is matched at `i`.
                 let s_filter = |kw: &str| line.get(i + kw.len()).is_none_or(|c| is_sep(*c));
                 for (keyword_highlight_type, kws) in &syntax.keywords {
                     for keyword in kws.iter().filter(|kw| find_str(kw) && s_filter(kw)) {
@@ -183,11 +181,26 @@ impl Row {
     /// as well as a limit on the length of the row (`max_len`). After
     /// writing the characters, clear the rest of the line and move the
     /// cursor to the start of the next line.
-    pub fn draw(&self, offset: usize, max_len: usize, buffer: &mut String, use_color: bool) {
+    pub fn draw(
+        &self, offset: usize, max_len: usize, buffer: &mut String, use_color: bool,
+        selected: Option<&std::ops::Range<usize>>,
+    ) {
         let mut current_hl_type = HlType::Normal;
+        let mut selection_active = false;
         let chars = self.render.chars().skip(offset).take(max_len);
         let mut rx = self.render.chars().take(offset).map(|c| c.width().unwrap_or(1)).sum();
         for (c, mut hl_type) in chars.zip(self.hl.iter().skip(offset)) {
+            let is_selected = selected.is_some_and(|range| range.contains(&rx));
+            if use_color && is_selected != selection_active {
+                buffer.push_str(RESET);
+                if is_selected {
+                    buffer.push_str(WBG);
+                }
+                if current_hl_type != HlType::Normal {
+                    buffer.push_str(&current_hl_type.to_string());
+                }
+                selection_active = is_selected;
+            }
             if c.is_ascii_control() {
                 let rendered_char = if (c as u8) <= 26 { (b'@' + c as u8) as char } else { '?' };
                 push_colored(buffer, WBG, &rendered_char.to_string(), use_color);
@@ -198,8 +211,7 @@ impl Row {
             } else {
                 if let Some(match_segment) = &self.match_segment {
                     if match_segment.contains(&rx) {
-                        // Set the highlight type to Match, i.e. set the
-                        // background to cyan
+                        // Set the highlight type to Match, i.e. set the background to cyan
                         hl_type = &HlType::Match;
                     } else if use_color && rx == match_segment.end {
                         // Reset the formatting, in particular the background

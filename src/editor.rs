@@ -10,7 +10,9 @@ use std::{fs::File, path::Path, process::Command, time::Instant};
 use crate::row::{HlState, Row};
 use crate::{Config, Error, ansi_escape::*, syntax::Conf as SyntaxConf, sys, terminal};
 
-const fn ctrl_key(key: u8) -> u8 { key & 0x1f }
+const fn ctrl_key(key: u8) -> u8 {
+    key & 0x1f
+}
 const EXIT: u8 = ctrl_key(b'Q');
 const DELETE_BIS: u8 = ctrl_key(b'H');
 const REFRESH_SCREEN: u8 = ctrl_key(b'L');
@@ -29,6 +31,12 @@ const BACKSPACE: u8 = 127;
 const WELCOME_MESSAGE: &str = concat!("Kibi ", env!("CARGO_PKG_VERSION"));
 const HELP_MESSAGE: &str = "^S save | ^Q quit | ^F find | ^G go to | ^D duplicate | ^E execute | \
                             ^C copy | ^X cut | ^V paste | ^/ comment";
+pub const DEFAULT_SYSTEM_PROMPT: &str = "You are a spec/text driven completion assistant. Your task is \
+    to output the characters/spec that should immediately follow the provided prefix code, to complete \
+    the line and/or subsequent lines. Do NOT repeat the prefix, do NOT wrap your answer in markdown \
+    code blocks (like ```), and do NOT include any introductory or explanatory text. Your response \
+    will be appended directly to the prefix, so it must form a syntactically correct and logical \
+    continuation. Provide ONLY the completion content.";
 
 /// `set_status!` sets a formatted status message for the editor.
 /// Example usage: `set_status!(editor, "{file_size} written to {file_name}")`
@@ -38,6 +46,7 @@ macro_rules! set_status { ($editor:expr, $($arg:expr),*) => ($editor.status_msg 
 #[cfg_attr(test, derive(Debug, PartialEq))]
 enum Key {
     Arrow(AKey),
+    ShiftArrow(AKey),
     CtrlArrow(AKey),
     PageUp,
     PageDown,
@@ -71,7 +80,9 @@ struct CursorState {
 }
 
 impl CursorState {
-    const fn move_to_next_line(&mut self) { (self.x, self.y) = (0, self.y + 1); }
+    const fn move_to_next_line(&mut self) {
+        (self.x, self.y) = (0, self.y + 1);
+    }
 
     /// Scroll the terminal window vertically and horizontally (i.e. adjusting
     /// the row offset and the column offset) so that the cursor can be
@@ -84,13 +95,14 @@ impl CursorState {
 
 /// The `Editor` struct, contains the state and configuration of the text
 /// editor.
-#[derive(Default)]
 pub struct Editor {
     /// If not `None`, the current prompt mode (`Save`, `Find`, `GoTo`, or
     /// `Execute`). If `None`, we are in regular edition mode.
     prompt_mode: Option<PromptMode>,
     /// The current state of the cursor.
     cursor: CursorState,
+    /// The fixed end of a selection started with Shift+Arrow.
+    selection_anchor: Option<(usize, usize)>,
     /// The padding size used on the left for line numbering.
     ln_pad: usize,
     /// The width of the current window. Will be updated when the window is
@@ -126,6 +138,59 @@ pub struct Editor {
     copied_row: Vec<u8>,
     /// Whether to use ANSI color escape codes for rendering
     use_color: bool,
+    /// The completion agent process
+    completion_agent: Option<CompletionAgentProcess>,
+    /// Channel to receive completions from the agent
+    completion_receiver: Option<std::sync::mpsc::Receiver<String>>,
+    /// System prompt passed to the completion agent
+    completion_system_prompt: Option<String>,
+    /// System prompt file passed to the completion agent
+    completion_system_prompt_file: Option<String>,
+    /// Current ghost text suggestion
+    ghost_text: Option<String>,
+    /// Last time a key was pressed, for debounce
+    last_keypress: Instant,
+    /// Position of the cursor when the last completion request was sent
+    last_completion_req_pos: Option<(usize, usize)>,
+}
+
+pub struct CompletionAgentProcess(std::process::Child);
+
+impl Drop for CompletionAgentProcess {
+    fn drop(&mut self) {
+        let _unused = self.0.kill();
+    }
+}
+
+impl Default for Editor {
+    fn default() -> Self {
+        Self {
+            prompt_mode: None,
+            cursor: CursorState::default(),
+            selection_anchor: None,
+            ln_pad: 0,
+            window_width: 0,
+            screen_rows: 0,
+            screen_cols: 0,
+            rows: Vec::new(),
+            dirty: false,
+            config: Config::load(),
+            quit_times: 0,
+            file_name: None,
+            status_msg: None,
+            syntax: SyntaxConf::default(),
+            n_bytes: 0,
+            copied_row: Vec::new(),
+            use_color: true,
+            completion_agent: None,
+            completion_receiver: None,
+            completion_system_prompt: None,
+            completion_system_prompt_file: None,
+            ghost_text: None,
+            last_keypress: Instant::now(),
+            last_completion_req_pos: None,
+        }
+    }
 }
 
 /// Describes a status message, shown at the bottom at the screen.
@@ -138,7 +203,9 @@ struct StatusMessage {
 
 impl StatusMessage {
     /// Create a new status message and set time to the current date/time.
-    fn new(msg: String) -> Self { Self { msg, time: Instant::now() } }
+    fn new(msg: String) -> Self {
+        Self { msg, time: Instant::now() }
+    }
 }
 
 /// Pretty-format a size in bytes.
@@ -170,14 +237,173 @@ fn get_akey(c: u8) -> AKey {
 }
 
 impl Editor {
+    fn start_completion_agent(&mut self) {
+        use std::process::Stdio;
+        use std::sync::mpsc::channel;
+
+        let (tx, rx) = channel();
+        self.completion_receiver = Some(rx);
+
+        let python_path =
+            if Path::new("/home/emmanuel/projects/email_graphs/graphing/bin/python3").exists() {
+                "/home/emmanuel/projects/email_graphs/graphing/bin/python3"
+            } else {
+                "python3"
+            };
+
+        let mut cmd = Command::new(python_path);
+        cmd.arg("/home/emmanuel/projects/ai10xdev/code.dev/kibi/scripts/completion_agent.py")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped());
+
+        if let Some(system_prompt_file) =
+            self.completion_system_prompt_file.as_deref().filter(|value| !value.trim().is_empty())
+        {
+            cmd.arg("--system-prompt-file").arg(system_prompt_file);
+        } else if let Some(system_prompt) =
+            self.completion_system_prompt.as_deref().filter(|value| !value.trim().is_empty())
+        {
+            cmd.arg("--system-prompt").arg(system_prompt);
+        } else if let Ok(system_prompt_file) = std::env::var("KIBI_SYSTEM_PROMPT_FILE")
+            && !system_prompt_file.trim().is_empty()
+        {
+            cmd.arg("--system-prompt-file").arg(system_prompt_file);
+        } else if let Ok(system_prompt) = std::env::var("KIBI_SYSTEM_PROMPT")
+            && !system_prompt.trim().is_empty()
+        {
+            cmd.arg("--system-prompt").arg(system_prompt);
+        } else {
+            cmd.arg("--system-prompt").arg(DEFAULT_SYSTEM_PROMPT);
+        }
+
+        let mut child = match cmd.spawn() {
+            Ok(c) => c,
+            Err(_) => return,
+        };
+        let mut stdout = BufReader::new(child.stdout.take().expect("Failed to open agent stdout"));
+
+        std::thread::spawn(move || {
+            let mut line = String::new();
+            let mut accumulating = false;
+            let mut current_completion = String::new();
+
+            while stdout.read_line(&mut line).is_ok() {
+                if line.is_empty() {
+                    break;
+                }
+                let trimmed = line.trim_end_matches('\n').trim_end_matches('\r');
+                if trimmed == "COMPLETION_START" {
+                    accumulating = true;
+                    current_completion.clear();
+                } else if trimmed == "COMPLETION_END" {
+                    accumulating = false;
+                    let _unused = tx.send(current_completion.clone());
+                } else if accumulating {
+                    if !current_completion.is_empty() {
+                        current_completion.push('\n');
+                    }
+                    current_completion.push_str(trimmed);
+                }
+                line.clear();
+            }
+        });
+
+        self.completion_agent = Some(CompletionAgentProcess(child));
+    }
+
+    fn check_and_trigger_completion(&mut self) {
+        if self.prompt_mode.is_some() {
+            return;
+        }
+
+        if self.last_keypress.elapsed() < std::time::Duration::from_millis(500) {
+            return;
+        }
+
+        if self.ghost_text.is_some() {
+            return;
+        }
+
+        if let Some(row) = self.rows.get(self.cursor.y) {
+            if self.cursor.x != row.chars.len() {
+                return;
+            }
+        }
+
+        let current_pos = (self.cursor.x, self.cursor.y);
+        if self.last_completion_req_pos == Some(current_pos) {
+            return;
+        }
+
+        self.last_completion_req_pos = Some(current_pos);
+
+        let mut should_start = false;
+        if let Some(agent) = &mut self.completion_agent {
+            if let Ok(Some(_)) = agent.0.try_wait() {
+                should_start = true;
+            }
+        } else {
+            should_start = true;
+        }
+
+        if should_start {
+            self.start_completion_agent();
+        }
+
+        let context = self.get_context_before_cursor();
+
+        if let Some(agent) = &mut self.completion_agent {
+            if let Some(stdin) = &mut agent.0.stdin {
+                let escaped = context.replace("\\", "\\\\").replace("\n", "\\n");
+                let mut line = escaped;
+                line.push('\n');
+                let _unused = stdin.write_all(line.as_bytes());
+                let _unused = stdin.flush();
+            }
+        }
+    }
+
+    fn get_context_before_cursor(&self) -> String {
+        let mut context = String::new();
+        let start_y = self.cursor.y.saturating_sub(100);
+        for i in start_y..self.cursor.y {
+            if let Some(row) = self.rows.get(i) {
+                context.push_str(&String::from_utf8_lossy(&row.chars));
+                context.push('\n');
+            }
+        }
+        if let Some(row) = self.rows.get(self.cursor.y) {
+            if self.cursor.x <= row.chars.len() {
+                context.push_str(&String::from_utf8_lossy(&row.chars[..self.cursor.x]));
+            } else {
+                context.push_str(&String::from_utf8_lossy(&row.chars));
+            }
+        }
+        context
+    }
+
+    fn insert_str(&mut self, s: &str) {
+        for c in s.bytes() {
+            if c == b'\n' {
+                self.insert_new_line();
+            } else {
+                self.insert_byte(c);
+            }
+        }
+    }
+
     /// Return the current row if the cursor points to an existing row, `None`
     /// otherwise.
-    fn current_row(&self) -> Option<&Row> { self.rows.get(self.cursor.y) }
+    fn current_row(&self) -> Option<&Row> {
+        self.rows.get(self.cursor.y)
+    }
 
     /// Return the position of the cursor, in terms of rendered characters (as
     /// opposed to `self.cursor.x`, which is the position of the cursor in
     /// terms of bytes).
-    fn rx(&self) -> usize { self.current_row().map_or(0, |r| r.cx2rx[self.cursor.x]) }
+    fn rx(&self) -> usize {
+        self.current_row().map_or(0, |r| r.cx2rx[self.cursor.x])
+    }
 
     /// Move the cursor following an arrow key (← → ↑ ↓).
     fn move_cursor(&mut self, key: &AKey, ctrl: bool) {
@@ -193,8 +419,9 @@ impl Editor {
             // ← at the beginning of the line: move to the end of the previous line. The x
             // position will be adjusted after this `match` to accommodate the current row
             // length, so we can just set here to the maximum possible value here.
-            (AKey::Left, _) if self.cursor.y > 0 =>
-                (self.cursor.y, self.cursor.x) = (self.cursor.y - 1, usize::MAX),
+            (AKey::Left, _) if self.cursor.y > 0 => {
+                (self.cursor.y, self.cursor.x) = (self.cursor.y - 1, usize::MAX)
+            }
             (AKey::Right, Some(row)) if self.cursor.x < row.chars.len() => {
                 let mut cursor_x = self.cursor.x + row.get_char_size(row.cx2rx[self.cursor.x]);
                 // → moving to next word
@@ -211,6 +438,56 @@ impl Editor {
             _ => (),
         }
         self.update_cursor_x_position();
+    }
+
+    /// Return the selected range as `(x, y)` positions in document order.
+    fn selection_range(&self) -> Option<((usize, usize), (usize, usize))> {
+        let anchor = self.selection_anchor?;
+        let cursor = (self.cursor.x, self.cursor.y);
+        if anchor == cursor {
+            return None;
+        }
+        if (anchor.1, anchor.0) < (cursor.1, cursor.0) {
+            Some((anchor, cursor))
+        } else {
+            Some((cursor, anchor))
+        }
+    }
+
+    /// Delete the selected text and place the cursor at the start of the range.
+    fn delete_selection(&mut self) -> bool {
+        let Some(((start_x, start_y), (end_x, end_y))) = self.selection_range() else {
+            self.selection_anchor = None;
+            return false;
+        };
+        if start_y >= self.rows.len() {
+            self.selection_anchor = None;
+            return false;
+        }
+
+        let end_y = end_y.min(self.rows.len() - 1);
+        let end_x = end_x.min(self.rows[end_y].chars.len());
+        let start_x = start_x.min(self.rows[start_y].chars.len());
+        let removed = if start_y == end_y {
+            self.rows[start_y].chars.drain(start_x..end_x).count()
+        } else {
+            let removed = self.rows[start_y].chars.len() - start_x
+                + self.rows[end_y].chars[..end_x].len()
+                + self.rows[start_y + 1..end_y].iter().map(|row| row.chars.len()).sum::<usize>();
+            let suffix = self.rows[end_y].chars[end_x..].to_vec();
+            self.rows[start_y].chars.truncate(start_x);
+            self.rows[start_y].chars.extend(suffix);
+            self.rows.drain(start_y + 1..=end_y);
+            removed
+        };
+
+        (self.cursor.x, self.cursor.y) = (start_x, start_y);
+        self.selection_anchor = None;
+        self.n_bytes -= removed as u64;
+        self.dirty = true;
+        self.update_all_rows();
+        self.update_screen_cols();
+        true
     }
 
     /// Update the cursor x position. If the cursor y position has changed, the
@@ -233,8 +510,28 @@ impl Editor {
                 self.update_window_size()?;
                 self.refresh_screen()?;
             }
-            // Match on the next byte received or, if the first byte is <ESC>
-            // ('\x1b'), on the next few bytes.
+
+            // Check if there are any completions received from the background thread
+            if let Some(receiver) = &self.completion_receiver {
+                let mut latest = None;
+                while let Ok(completion) = receiver.try_recv() {
+                    latest = Some(completion);
+                }
+                if let Some(completion) = latest {
+                    if self.last_completion_req_pos == Some((self.cursor.x, self.cursor.y)) {
+                        if !completion.is_empty() && !completion.starts_with("Error:") {
+                            self.ghost_text = Some(completion);
+                            self.refresh_screen()?;
+                        }
+                    }
+                }
+            }
+
+            // Check if we should trigger a new completion request
+            self.check_and_trigger_completion();
+
+            // Match on the next byte received or, if the first byte is <ESC> ('\x1b'), on
+            // the next few bytes.
             if let Some(a) = bytes.next().transpose()? {
                 if a != b'\x1b' {
                     return Ok(Key::Char(a));
@@ -247,8 +544,7 @@ impl Editor {
                         (b'[', mut c @ Some(b'0'..=b'8')) => {
                             let mut d = bytes.next().transpose()?;
                             if (c, d) == (Some(b'1'), Some(b';')) {
-                                // 1 is the default modifier value. Therefore,
-                                // <ESC>[1;5C is
+                                // 1 is the default modifier value. Therefore, <ESC>[1;5C is
                                 // equivalent to <ESC>[5C, etc.
                                 c = bytes.next().transpose()?;
                                 d = bytes.next().transpose()?;
@@ -259,6 +555,7 @@ impl Editor {
                                 (Some(b'3'), Some(b'~')) => Key::Delete,
                                 (Some(b'5'), Some(b'~')) => Key::PageUp,
                                 (Some(b'6'), Some(b'~')) => Key::PageDown,
+                                (Some(b'2'), Some(d @ b'A'..=b'D')) => Key::ShiftArrow(get_akey(d)),
                                 (Some(b'5'), Some(d @ b'A'..=b'D')) => Key::CtrlArrow(get_akey(d)),
                                 _ => Key::Escape,
                             }
@@ -286,10 +583,9 @@ impl Editor {
     /// maximum number of digits for line numbers (since the left padding
     /// depends on this number of digits).
     fn update_screen_cols(&mut self) {
-        // The maximum number of digits to use for the line number is the number
-        // of digits of the last line number. This is equal to the
-        // number of times we can divide this number by ten, computed
-        // below using `successors`.
+        // The maximum number of digits to use for the line number is the number of
+        // digits of the last line number. This is equal to the number of times
+        // we can divide this number by ten, computed below using `successors`.
         let n_digits = scsr(Some(self.rows.len()), |u| Some(u / 10).filter(|u| *u > 0)).count();
         let show_line_num = self.config.show_line_num && n_digits + 2 < self.window_width / 4;
         self.ln_pad = if show_line_num { n_digits + 2 } else { 0 };
@@ -328,8 +624,7 @@ impl Editor {
             row.chars.insert(self.cursor.x, c);
         } else {
             self.rows.push(Row::new(vec![c]));
-            // The number of rows has changed. The left padding may need to be
-            // updated.
+            // The number of rows has changed. The left padding may need to be updated.
             self.update_screen_cols();
         }
         self.update_row(self.cursor.y, false);
@@ -343,8 +638,8 @@ impl Editor {
         let (position, new_row_chars) = if self.cursor.x == 0 {
             (self.cursor.y, Vec::new())
         } else {
-            // self.rows[self.cursor.y] must exist, since cursor.x = 0 for any
-            // cursor.y ≥ row.len()
+            // self.rows[self.cursor.y] must exist, since cursor.x = 0 for any cursor.y ≥
+            // row.len()
             let new_chars = self.rows[self.cursor.y].chars.split_off(self.cursor.x);
             self.update_row(self.cursor.y, false);
             (self.cursor.y + 1, new_chars)
@@ -363,8 +658,8 @@ impl Editor {
     fn delete_char(&mut self) {
         if self.cursor.x > 0 {
             let row = &mut self.rows[self.cursor.y];
-            // Obtain the number of bytes to be removed: could be 1-4 (UTF-8
-            // character size).
+            // Obtain the number of bytes to be removed: could be 1-4 (UTF-8 character
+            // size).
             let n_bytes_to_remove = row.get_char_size(row.cx2rx[self.cursor.x] - 1);
             row.chars.splice(self.cursor.x - n_bytes_to_remove..self.cursor.x, iter::empty());
             self.update_row(self.cursor.y, false);
@@ -378,13 +673,12 @@ impl Editor {
             previous_row.chars.extend(&row.chars);
             self.update_row(self.cursor.y - 1, true);
             self.update_row(self.cursor.y, false);
-            // The number of rows has changed. The left padding may need to be
-            // updated.
+            // The number of rows has changed. The left padding may need to be updated.
             self.update_screen_cols();
             (self.dirty, self.cursor.y) = (true, self.cursor.y - 1);
         } else if self.cursor.y == self.rows.len() {
-            // If the cursor is located after the last row, pressing backspace
-            // is equivalent to pressing the left arrow key.
+            // If the cursor is located after the last row, pressing backspace is equivalent
+            // to pressing the left arrow key.
             self.move_cursor(&AKey::Left, false);
         }
     }
@@ -435,8 +729,7 @@ impl Editor {
         // Check if the line is already commented
         let n_update = if row.chars.get(pos..pos + sym.len()) == Some(sym.as_bytes()) {
             let to_remove = sym.len() + usize::from(row.chars.get(pos + sym.len()) == Some(&b' '));
-            // Remove the comment and return the removed size as a negative
-            // integer
+            // Remove the comment and return the removed size as a negative integer
             0isize.saturating_sub_unsigned(row.chars.drain(pos..pos + to_remove).len())
         } else {
             // Insert comment at the first non-whitespace position
@@ -471,18 +764,16 @@ impl Editor {
         for line in BufReader::new(&file).split(b'\n') {
             self.rows.push(Row::new(line?));
         }
-        // If the file ends with an empty line or is empty, we need to append an
-        // empty row to `self.rows`. Unfortunately, BufReader::split
-        // doesn't yield an empty Vec in this case, so we need to check
-        // the last byte directly.
+        // If the file ends with an empty line or is empty, we need to append an empty
+        // row to `self.rows`. Unfortunately, BufReader::split doesn't yield an
+        // empty Vec in this case, so we need to check the last byte directly.
         file.seek(io::SeekFrom::End(0))?;
         #[expect(clippy::unbuffered_bytes)]
         if file.bytes().next().transpose()?.is_none_or(|b| b == b'\n') {
             self.rows.push(Row::new(Vec::new()));
         }
         self.update_all_rows();
-        // The number of rows has changed. The left padding may need to be
-        // updated.
+        // The number of rows has changed. The left padding may need to be updated.
         self.update_screen_cols();
         self.n_bytes = self.rows.iter().map(|row| row.chars.len() as u64).sum();
         Ok(())
@@ -544,18 +835,45 @@ impl Editor {
     /// Return whether the file being edited is empty or not. If there is more
     /// than one row, even if all the rows are empty, `is_empty` returns
     /// `false`, since the text contains new lines.
-    const fn is_empty(&self) -> bool { self.rows.len() <= 1 && self.n_bytes == 0 }
+    const fn is_empty(&self) -> bool {
+        self.rows.len() <= 1 && self.n_bytes == 0
+    }
 
     /// Draw rows of text and empty rows on the terminal, by adding characters
     /// to the buffer.
     fn draw_rows(&self, buffer: &mut String) -> Result<(), Error> {
+        let selection = self.selection_range();
         let row_it = self.rows.iter().map(Some).chain(repeat(None)).enumerate();
         for (i, row) in row_it.skip(self.cursor.roff).take(self.screen_rows) {
             buffer.push_str(CLEAR_LINE_RIGHT_OF_CURSOR);
             if let Some(row) = row {
                 // Draw a row of text
                 self.draw_left_padding(buffer, i + 1);
-                row.draw(self.cursor.coff, self.screen_cols, buffer, self.use_color);
+                let selected_rx = selection.and_then(|((start_x, start_y), (end_x, end_y))| {
+                    if i < start_y || i > end_y {
+                        return None;
+                    }
+                    let start = if i == start_y { row.cx2rx[start_x] } else { 0 };
+                    let end = if i == end_y {
+                        row.cx2rx[end_x.min(row.chars.len())]
+                    } else {
+                        row.cx2rx[row.chars.len()]
+                    };
+                    Some(start..end)
+                });
+                row.draw(
+                    self.cursor.coff,
+                    self.screen_cols,
+                    buffer,
+                    self.use_color,
+                    selected_rx.as_ref(),
+                );
+                if i == self.cursor.y {
+                    if let Some(ghost) = &self.ghost_text {
+                        let first_line = ghost.lines().next().unwrap_or("");
+                        push_colored(buffer, "\x1b[38;5;244m", first_line, self.use_color);
+                    }
+                }
             } else {
                 // Draw an empty row
                 self.draw_left_padding(buffer, '~');
@@ -605,12 +923,12 @@ impl Editor {
         self.draw_status_bar(&mut buffer);
         self.draw_message_bar(&mut buffer);
         let (cursor_x, cursor_y) = if self.prompt_mode.is_none() {
-            // If not in prompt mode, position the cursor according to the
-            // `cursor` attributes.
+            // If not in prompt mode, position the cursor according to the `cursor`
+            // attributes.
             (self.rx() - self.cursor.coff + 1 + self.ln_pad, self.cursor.y - self.cursor.roff + 1)
         } else {
-            // If in prompt mode, position the cursor on the prompt line at the
-            // end of the line.
+            // If in prompt mode, position the cursor on the prompt line at the end of the
+            // line.
             (self.status_msg.as_ref().map_or(0, |sm| sm.msg.len() + 1), self.screen_rows + 2)
         };
         // Finally, print `buffer` and move the cursor
@@ -622,13 +940,28 @@ impl Editor {
     /// whether the program should exit, and optionally the prompt mode to
     /// switch to.
     fn process_keypress(&mut self, key: &Key) -> (bool, Option<PromptMode>) {
+        if !matches!(key, Key::Char(b'\t')) {
+            self.ghost_text = None;
+        }
+        self.last_keypress = Instant::now();
+
         // This won't be mutated, unless key is Key::Character(EXIT)
         let mut reset_quit_times = true;
         let mut prompt_mode = None;
 
         match key {
-            Key::Arrow(arrow) => self.move_cursor(arrow, false),
-            Key::CtrlArrow(arrow) => self.move_cursor(arrow, true),
+            Key::Arrow(arrow) => {
+                self.selection_anchor = None;
+                self.move_cursor(arrow, false);
+            }
+            Key::ShiftArrow(arrow) => {
+                self.selection_anchor.get_or_insert((self.cursor.x, self.cursor.y));
+                self.move_cursor(arrow, false);
+            }
+            Key::CtrlArrow(arrow) => {
+                self.selection_anchor = None;
+                self.move_cursor(arrow, true);
+            }
             Key::PageUp => {
                 self.cursor.y = self.cursor.roff.saturating_sub(self.screen_rows);
                 self.update_cursor_x_position();
@@ -637,16 +970,32 @@ impl Editor {
                 self.cursor.y = (self.cursor.roff + 2 * self.screen_rows - 1).min(self.rows.len());
                 self.update_cursor_x_position();
             }
-            Key::Home => self.cursor.x = 0,
-            Key::End => self.cursor.x = self.current_row().map_or(0, |row| row.chars.len()),
-            Key::Char(b'\r' | b'\n') => self.insert_new_line(), // Enter
-            Key::Char(BACKSPACE | DELETE_BIS) => self.delete_char(), // Backspace or Ctrl + H
+            Key::Home => {
+                self.selection_anchor = None;
+                self.cursor.x = 0;
+            }
+            Key::End => {
+                self.selection_anchor = None;
+                self.cursor.x = self.current_row().map_or(0, |row| row.chars.len());
+            }
+            Key::Char(b'\r' | b'\n') => {
+                self.delete_selection();
+                self.insert_new_line();
+            }
+            Key::Char(BACKSPACE | DELETE_BIS) => {
+                if !self.delete_selection() {
+                    self.delete_char();
+                }
+            }
             Key::Char(REMOVE_LINE) => self.delete_current_row(),
             Key::Delete => {
-                self.move_cursor(&AKey::Right, false);
-                self.delete_char();
+                if !self.delete_selection() {
+                    self.move_cursor(&AKey::Right, false);
+                    self.delete_char();
+                }
             }
-            Key::Escape | Key::Char(REFRESH_SCREEN) => (),
+            Key::Escape => self.selection_anchor = None,
+            Key::Char(REFRESH_SCREEN) => (),
             Key::Char(EXIT) => {
                 if !self.dirty || self.quit_times + 1 >= self.config.quit_times {
                     return (true, None);
@@ -660,8 +1009,9 @@ impl Editor {
                 self.file_name = Some(file_name);
             }
             Key::Char(SAVE) => prompt_mode = Some(PromptMode::Save(String::new())),
-            Key::Char(FIND) =>
-                prompt_mode = Some(PromptMode::Find(String::new(), self.cursor.clone(), None)),
+            Key::Char(FIND) => {
+                prompt_mode = Some(PromptMode::Find(String::new(), self.cursor.clone(), None))
+            }
             Key::Char(GOTO) => prompt_mode = Some(PromptMode::GoTo(String::new())),
             Key::Char(DUPLICATE) => self.duplicate_current_row(),
             Key::Char(CUT) => {
@@ -672,7 +1022,18 @@ impl Editor {
             Key::Char(PASTE) => self.paste_current_row(),
             Key::Char(TOGGLE_COMMENT) => self.toggle_comment(),
             Key::Char(EXECUTE) => prompt_mode = Some(PromptMode::Execute(String::new())),
-            Key::Char(c) => self.insert_byte(*c),
+            Key::Char(b'\t') => {
+                self.delete_selection();
+                if let Some(text) = self.ghost_text.take() {
+                    self.insert_str(&text);
+                } else {
+                    self.insert_byte(b'\t');
+                }
+            }
+            Key::Char(c) => {
+                self.delete_selection();
+                self.insert_byte(*c);
+            }
         }
         self.quit_times = if reset_quit_times { 0 } else { self.quit_times + 1 };
         (false, prompt_mode)
@@ -691,9 +1052,8 @@ impl Editor {
             current = (current + if forward { 1 } else { num_rows - 1 }) % num_rows;
             let row = &mut self.rows[current];
             if let Some(cx) = row.chars.windows(query.len()).position(|w| w == query.as_bytes()) {
-                // self.cursor.coff: Try to reset the column offset; if the
-                // match is after the offset, this will be
-                // updated in self.cursor.scroll() so that
+                // self.cursor.coff: Try to reset the column offset; if the match is after the
+                // offset, this will be updated in self.cursor.scroll() so that
                 // the result is visible
                 (self.cursor.x, self.cursor.y, self.cursor.coff) = (cx, current, 0);
                 let rx = row.cx2rx[cx];
@@ -749,10 +1109,18 @@ impl Editor {
 ///
 /// Will Return `Err` if any error occur when registering the window size signal
 /// handler, enabling raw mode, or running the editor.
-pub fn run<I: BufRead>(file_name: Option<&str>, input: &mut I) -> Result<(), Error> {
+pub fn run_with_completion_prompt<I: BufRead>(
+    file_name: Option<&str>, input: &mut I, system_prompt_file: Option<&str>,
+    system_prompt: Option<&str>,
+) -> Result<(), Error> {
     sys::register_winsize_change_signal_handler()?;
     let orig_term_mode = sys::enable_raw_mode()?;
-    let mut editor = Editor { config: Config::load(), ..Default::default() };
+    let mut editor = Editor {
+        config: Config::load(),
+        completion_system_prompt: system_prompt.map(String::from),
+        completion_system_prompt_file: system_prompt_file.map(String::from),
+        ..Default::default()
+    };
     editor.use_color = !std::env::var("NO_COLOR").is_ok_and(|val| !val.is_empty());
 
     print!("{USE_ALTERNATE_SCREEN}");
@@ -769,6 +1137,17 @@ pub fn run<I: BufRead>(file_name: Option<&str>, input: &mut I) -> Result<(), Err
     terminal::restore_terminal(&orig_term_mode)?;
 
     result
+}
+
+/// Set up the terminal and run the text editor. If `file_name` is not None,
+/// load the file.
+///
+/// # Errors
+///
+/// Will Return `Err` if any error occur when registering the window size signal
+/// handler, enabling raw mode, or running the editor.
+pub fn run<I: BufRead>(file_name: Option<&str>, input: &mut I) -> Result<(), Error> {
+    run_with_completion_prompt(file_name, input, None, None)
 }
 
 /// The prompt mode.
@@ -814,8 +1193,9 @@ impl PromptMode {
                     PromptState::Active(query) => {
                         #[expect(clippy::wildcard_enum_match_arm)]
                         let (last_match, forward) = match key {
-                            Key::Arrow(AKey::Right | AKey::Down) | Key::Char(FIND) =>
-                                (last_match, true),
+                            Key::Arrow(AKey::Right | AKey::Down) | Key::Char(FIND) => {
+                                (last_match, true)
+                            }
                             Key::Arrow(AKey::Left | AKey::Up) => (last_match, false),
                             _ => (None, true),
                         };
@@ -855,8 +1235,9 @@ impl PromptMode {
                 PromptState::Completed(b) => {
                     let mut args = b.split_whitespace();
                     match Command::new(args.next().unwrap_or_default()).args(args).output() {
-                        Ok(out) if !out.status.success() =>
-                            set_status!(ed, "{}", String::from_utf8_lossy(&out.stderr).trim_end()),
+                        Ok(out) if !out.status.success() => {
+                            set_status!(ed, "{}", String::from_utf8_lossy(&out.stderr).trim_end())
+                        }
                         Ok(out) => out.stdout.into_iter().for_each(|c| match c {
                             b'\n' => ed.insert_new_line(),
                             c => ed.insert_byte(c),
@@ -1351,44 +1732,48 @@ mod tests {
         }
 
         assert_row_chars_equal(&editor, &[b"A", b"b/*c", b"d", b"e", b"f*/g", b"h"]);
-        assert_row_synthax_highlighting_types_equal(&editor, &[
-            &[HlType::Normal],
-            &[HlType::Normal, HlType::MlComment, HlType::MlComment, HlType::MlComment],
-            &[HlType::MlComment],
-            &[HlType::MlComment],
-            &[HlType::MlComment, HlType::MlComment, HlType::MlComment, HlType::Normal],
-            &[HlType::Normal],
-        ]);
+        assert_row_synthax_highlighting_types_equal(
+            &editor,
+            &[
+                &[HlType::Normal],
+                &[HlType::Normal, HlType::MlComment, HlType::MlComment, HlType::MlComment],
+                &[HlType::MlComment],
+                &[HlType::MlComment],
+                &[HlType::MlComment, HlType::MlComment, HlType::MlComment, HlType::Normal],
+                &[HlType::Normal],
+            ],
+        );
 
         (editor.cursor.x, editor.cursor.y) = (0, 4);
         editor.delete_current_row();
 
         assert_row_chars_equal(&editor, &[b"A", b"b/*c", b"d", b"e", b"h"]);
-        assert_row_synthax_highlighting_types_equal(&editor, &[
-            &[HlType::Normal],
-            &[HlType::Normal, HlType::MlComment, HlType::MlComment, HlType::MlComment],
-            &[HlType::MlComment],
-            &[HlType::MlComment],
-            &[HlType::MlComment],
-        ]);
+        assert_row_synthax_highlighting_types_equal(
+            &editor,
+            &[
+                &[HlType::Normal],
+                &[HlType::Normal, HlType::MlComment, HlType::MlComment, HlType::MlComment],
+                &[HlType::MlComment],
+                &[HlType::MlComment],
+                &[HlType::MlComment],
+            ],
+        );
 
         (editor.cursor.x, editor.cursor.y) = (0, 1);
         editor.delete_current_row();
 
         assert_row_chars_equal(&editor, &[b"A", b"d", b"e", b"h"]);
-        assert_row_synthax_highlighting_types_equal(&editor, &[
-            &[HlType::Normal],
-            &[HlType::Normal],
-            &[HlType::Normal],
-            &[HlType::Normal],
-        ]);
+        assert_row_synthax_highlighting_types_equal(
+            &editor,
+            &[&[HlType::Normal], &[HlType::Normal], &[HlType::Normal], &[HlType::Normal]],
+        );
     }
 
     #[test]
     fn loop_until_keypress() -> Result<(), Error> {
         let mut editor = Editor::default();
         let mut fake_stdin = Cursor::new(
-            b"abc\x1b[A\x1b[B\x1b[C\x1b[D\x1b[H\x1bOH\x1b[F\x1bOF\x1b[1;5C\x1b[5C\x1b[99",
+            b"abc\x1b[A\x1b[B\x1b[C\x1b[D\x1b[H\x1bOH\x1b[F\x1bOF\x1b[1;5C\x1b[5C\x1b[1;2D\x1b[99",
         );
         for expected_key in [
             Key::Char(b'a'),
@@ -1404,6 +1789,7 @@ mod tests {
             Key::End,
             Key::CtrlArrow(AKey::Right),
             Key::CtrlArrow(AKey::Right),
+            Key::ShiftArrow(AKey::Left),
             Key::Escape,
         ] {
             assert_eq!(editor.loop_until_keypress(&mut fake_stdin)?, expected_key);
@@ -1526,5 +1912,120 @@ mod tests {
 
         // Verify cursor position is valid
         assert!(editor.cursor.x <= editor.rows[0].chars.len());
+    }
+
+    #[test]
+    fn test_completion_trigger_mechanics() {
+        let mut editor = Editor::default();
+        editor.insert_str("fn main() {\n");
+        assert!(editor.last_keypress.elapsed() < std::time::Duration::from_secs(1));
+        let context = editor.get_context_before_cursor();
+        assert_eq!(context, "fn main() {\n");
+    }
+
+    #[test]
+    fn ghost_text_is_rendered_in_gray_on_the_current_row() -> Result<(), Error> {
+        let mut editor =
+            Editor { window_width: 80, screen_rows: 1, use_color: true, ..Default::default() };
+        editor.update_screen_cols();
+        editor.insert_str("fn");
+        editor.ghost_text = Some(" main() {\n    println!(\"hello\");\n}".to_owned());
+
+        let mut buffer = String::new();
+        editor.draw_rows(&mut buffer)?;
+
+        assert!(buffer.contains("fn\x1b[m\x1b[38;5;244m main() {\x1b[m"));
+        assert!(!buffer.contains("println!"));
+        Ok(())
+    }
+
+    #[test]
+    fn tab_accepts_multiline_ghost_text() {
+        let mut editor = Editor::default();
+        editor.insert_str("fn");
+        editor.ghost_text = Some(" main() {\n    return;\n}".to_owned());
+
+        let (should_quit, prompt_mode) = editor.process_keypress(&Key::Char(b'\t'));
+
+        assert!(!should_quit);
+        assert!(prompt_mode.is_none());
+        assert!(editor.ghost_text.is_none());
+        assert_row_chars_equal(&editor, &[b"fn main() {", b"    return;", b"}"]);
+        assert_eq!((editor.cursor.x, editor.cursor.y), (1, 2));
+    }
+
+    #[test]
+    fn typing_dismisses_ghost_text() {
+        let mut editor = Editor::default();
+        editor.insert_str("fn");
+        editor.ghost_text = Some(" main() {}".to_owned());
+
+        editor.process_keypress(&Key::Char(b'!'));
+
+        assert!(editor.ghost_text.is_none());
+        assert_row_chars_equal(&editor, &[b"fn!"]);
+    }
+
+    #[test]
+    fn shift_arrows_select_and_backspace_deletes_text() {
+        let mut editor = Editor::default();
+        editor.insert_str("Hello world");
+
+        for _ in 0..5 {
+            editor.process_keypress(&Key::ShiftArrow(AKey::Left));
+        }
+        assert_eq!(editor.selection_range(), Some(((6, 0), (11, 0))));
+
+        editor.process_keypress(&Key::Char(BACKSPACE));
+
+        assert_row_chars_equal(&editor, &[b"Hello "]);
+        assert_eq!((editor.cursor.x, editor.cursor.y), (6, 0));
+        assert_eq!(editor.selection_range(), None);
+        assert_eq!(editor.n_bytes, 6);
+    }
+
+    #[test]
+    fn delete_removes_a_multiline_selection_in_either_direction() {
+        let mut editor = Editor::default();
+        editor.insert_str("first line\nsecond line\nthird line");
+        (editor.cursor.x, editor.cursor.y) = (3, 2);
+
+        editor.process_keypress(&Key::ShiftArrow(AKey::Up));
+        editor.process_keypress(&Key::ShiftArrow(AKey::Up));
+        editor.process_keypress(&Key::ShiftArrow(AKey::Left));
+        editor.process_keypress(&Key::Delete);
+
+        assert_row_chars_equal(&editor, &[b"fird line"]);
+        assert_eq!((editor.cursor.x, editor.cursor.y), (2, 0));
+        assert_eq!(editor.n_bytes, 9);
+    }
+
+    #[test]
+    fn typing_replaces_selected_text() {
+        let mut editor = Editor::default();
+        editor.insert_str("goal");
+        editor.process_keypress(&Key::ShiftArrow(AKey::Left));
+        editor.process_keypress(&Key::ShiftArrow(AKey::Left));
+
+        editor.process_keypress(&Key::Char(b't'));
+
+        assert_row_chars_equal(&editor, &[b"got"]);
+        assert_eq!((editor.cursor.x, editor.cursor.y), (3, 0));
+    }
+
+    #[test]
+    fn selected_text_is_rendered_with_inverse_video() -> Result<(), Error> {
+        let mut editor =
+            Editor { window_width: 80, screen_rows: 1, use_color: true, ..Default::default() };
+        editor.update_screen_cols();
+        editor.insert_str("Hello");
+        editor.selection_anchor = Some((1, 0));
+        editor.cursor.x = 4;
+
+        let mut buffer = String::new();
+        editor.draw_rows(&mut buffer)?;
+
+        assert!(buffer.contains("\x1b[7mell\x1b[m"));
+        Ok(())
     }
 }
