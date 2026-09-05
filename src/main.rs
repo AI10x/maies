@@ -4,9 +4,10 @@
 
 //! # Kibi
 
-use kibi::{DEFAULT_SYSTEM_PROMPT, Error, run, run_with_completion_prompt, stdin};
+use kibi::{Error, run, run_with_ai, stdin};
 
 struct Args {
+    ai: bool,
     file_name: Option<String>,
     system_prompt: Option<String>,
     system_prompt_file: Option<String>,
@@ -17,7 +18,8 @@ fn too_many_arguments() -> Error {
 }
 
 fn parse_args(args: Vec<String>) -> Result<Args, Error> {
-    let mut parsed = Args { file_name: None, system_prompt: None, system_prompt_file: None };
+    let mut parsed =
+        Args { ai: false, file_name: None, system_prompt: None, system_prompt_file: None };
     let mut args = args.into_iter();
 
     while let Some(arg) = args.next() {
@@ -26,15 +28,19 @@ fn parse_args(args: Vec<String>) -> Result<Args, Error> {
         }
 
         match arg.as_str() {
+            "--ai" => parsed.ai = true,
             "--system-prompt" => {
-                let system_prompt =
-                    args.next().unwrap_or_else(|| DEFAULT_SYSTEM_PROMPT.to_string());
+                let Some(system_prompt) = args.next() else {
+                    return Err(Error::MissingOptionValue(arg));
+                };
+                parsed.ai = true;
                 parsed.system_prompt = Some(system_prompt);
             }
             "--system-prompt-file" => {
                 let Some(system_prompt_file) = args.next() else {
                     return Err(Error::MissingOptionValue(arg));
                 };
+                parsed.ai = true;
                 parsed.system_prompt_file = Some(system_prompt_file);
             }
             "--" => match (args.next(), args.next()) {
@@ -72,9 +78,10 @@ fn main() -> Result<(), Error> {
         [arg, ..] if arg == "--version" => return Err(Error::BadOption(arg.clone())),
         _ => {
             let args = parse_args(args)?;
-            run_with_completion_prompt(
+            run_with_ai(
                 args.file_name.as_deref(),
                 &mut stdin()?,
+                args.ai,
                 args.system_prompt_file.as_deref(),
                 args.system_prompt.as_deref(),
             )?;

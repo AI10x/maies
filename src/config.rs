@@ -63,7 +63,7 @@ impl Config {
                     "quit_times" => conf.quit_times = parse_value(value)?,
                     "message_duration" => {
                         conf.message_dur = Duration::try_from_secs_f32(parse_value(value)?)
-                            .map_err(|x| x.to_string())?
+                            .map_err(|x| x.to_string())?;
                     }
                     "show_line_numbers" => conf.show_line_num = parse_value(value)?,
                     _ => return Err(format!("Invalid key: {key}")),
@@ -94,7 +94,8 @@ where
                 match (line.chars().next(), line.split_once('=')) {
                     (Some('#' | ';') | None, _) => (), // Comment or empty line
                     (_, Some((k, v))) => {
-                        kv_fn(k.trim_end(), v.trim()).unwrap_or_else(|r| warn(&format!("{k}: {r}")))
+                        kv_fn(k.trim_end(), v.trim())
+                            .unwrap_or_else(|r| warn(&format!("{k}: {r}")));
                     }
                     (_, None) => warn("missing '='"),
                 }

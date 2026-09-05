@@ -27,7 +27,6 @@ documentation, or proposing a new feature, your help is appreciated.
   - [Run Tests](#run-tests)
   - [Format Code](#format-code)
   - [Run Linters (Nightly)](#run-linters-nightly)
-  - [Count Lines of Code](#count-lines-of-code)
   - [Optional: Fuzz Testing](#optional-fuzz-testing)
 - [Dependency Policy](#dependency-policy)
 - [Submitting a Pull Request](#submitting-a-pull-request)
@@ -165,14 +164,6 @@ mistakes and enforce idiomatic Rust.
 cargo +nightly clippy
 ```
 
-### Count Lines of Code
-
-Ensure you are within the limits.
-
-```bash
-cargo xtask count-loc
-```
-
 ### Optional: Fuzz Testing
 
 If you are changing the logic of configuration parsing, you may want to run the
@@ -212,9 +203,8 @@ Changes to code for Kibi are made through Pull Requests on GitHub.
 2. **Commits:** Similarly, we do not enforce a convention for commit messages,
    but please ensure they are descriptive enough.
 3. **Push & Open PR:** Push your branch to GitHub and open a Pull Request.
-4. **Description:** Fill out the PR description clearly. If you had to refactor
-   code to stay under the 1024-line limit, please mention what was changed to
-   make room.
+4. **Description:** Fill out the PR description clearly, including the motivation
+   for the change and the verification you performed.
 5. **Checks:** After you submit the pull request, continuous integration checks
    will be run using GitHub Actions to enforce that the commit conforms to Kibi's
    quality guidelines (tests, formatting, etc.). Please ensure all checks pass,

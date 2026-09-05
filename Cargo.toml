@@ -1,16 +1,16 @@
 [package]
 name = "kibi"
-description = "A text editor in less than 1024 lines of code with syntax highlighting, search and more."
+description = "A minimalist terminal editor with syntax highlighting and optional AI completion."
 readme = "README.md"
 keywords = ["editor", "terminal", "text-editor"]
 categories = ["text-editors", "development-tools"]
-include = ["src/", "tests/", "Cargo.toml", "Cargo.lock", "COPYRIGHT", "LICENSE-*"]
+include = ["src/", "scripts/completion_agent.py", "requirements-ai.txt", "tests/", "build.rs", "Cargo.toml", "Cargo.lock", "COPYRIGHT", "LICENSE-*"]
 version = "0.3.3"
 rust-version = "1.95"
 authors = ["Ilaï Deutel"]
 license = "MIT OR Apache-2.0"
 edition = "2024"
-repository = "https://github.com/ilai-deutel/kibi"
+repository = "https://github.com/AI10x/maies"
 
 [dependencies]
 unicode-width = "0.2.2"

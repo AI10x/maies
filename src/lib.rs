@@ -8,7 +8,7 @@
 
 pub use crate::{
     config::Config,
-    editor::{DEFAULT_SYSTEM_PROMPT, run, run_with_completion_prompt},
+    editor::{DEFAULT_SYSTEM_PROMPT, run, run_with_ai, run_with_completion_prompt},
     error::Error,
     sys::stdin,
 };

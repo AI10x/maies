@@ -7,6 +7,8 @@ use std::io::{self, BufRead, BufReader, ErrorKind, Read, Seek, Write};
 use std::iter::{self, repeat, successors as scsr};
 use std::{fs::File, path::Path, process::Command, time::Instant};
 
+use unicode_width::UnicodeWidthChar;
+
 use crate::row::{HlState, Row};
 use crate::{Config, Error, ansi_escape::*, syntax::Conf as SyntaxConf, sys, terminal};
 
@@ -28,7 +30,7 @@ const REMOVE_LINE: u8 = ctrl_key(b'R');
 const TOGGLE_COMMENT: u8 = 31;
 const BACKSPACE: u8 = 127;
 
-const WELCOME_MESSAGE: &str = concat!("Kibi ", env!("CARGO_PKG_VERSION"));
+const WELCOME_MESSAGE: &str = concat!("Maies ", env!("CARGO_PKG_VERSION"));
 const HELP_MESSAGE: &str = "^S save | ^Q quit | ^F find | ^G go to | ^D duplicate | ^E execute | \
                             ^C copy | ^X cut | ^V paste | ^/ comment";
 pub const DEFAULT_SYSTEM_PROMPT: &str = "You are a spec/text driven completion assistant. Your task is \
@@ -37,6 +39,7 @@ pub const DEFAULT_SYSTEM_PROMPT: &str = "You are a spec/text driven completion a
     code blocks (like ```), and do NOT include any introductory or explanatory text. Your response \
     will be appended directly to the prefix, so it must form a syntactically correct and logical \
     continuation. Provide ONLY the completion content.";
+const COMPLETION_AGENT_SCRIPT: &str = include_str!("../scripts/completion_agent.py");
 
 /// `set_status!` sets a formatted status message for the editor.
 /// Example usage: `set_status!(editor, "{file_size} written to {file_name}")`
@@ -141,7 +144,9 @@ pub struct Editor {
     /// The completion agent process
     completion_agent: Option<CompletionAgentProcess>,
     /// Channel to receive completions from the agent
-    completion_receiver: Option<std::sync::mpsc::Receiver<String>>,
+    completion_receiver: Option<std::sync::mpsc::Receiver<CompletionMessage>>,
+    /// Whether AI completion is enabled for this session
+    completion_enabled: bool,
     /// System prompt passed to the completion agent
     completion_system_prompt: Option<String>,
     /// System prompt file passed to the completion agent
@@ -150,11 +155,39 @@ pub struct Editor {
     ghost_text: Option<String>,
     /// Last time a key was pressed, for debounce
     last_keypress: Instant,
-    /// Position of the cursor when the last completion request was sent
-    last_completion_req_pos: Option<(usize, usize)>,
+    /// Context associated with the outstanding or most recent request
+    last_completion_context: Option<String>,
+    /// Monotonically increasing completion request identifier
+    completion_request_id: u64,
+    /// Request currently waiting for a response
+    pending_completion_id: Option<u64>,
 }
 
 pub struct CompletionAgentProcess(std::process::Child);
+
+struct CompletionMessage {
+    id: u64,
+    result: Result<String, String>,
+}
+
+fn read_completion(input: &mut impl BufRead) -> io::Result<Option<CompletionMessage>> {
+    let mut header = String::new();
+    if input.read_line(&mut header)? == 0 {
+        return Ok(None);
+    }
+    let parts = header.split_whitespace().collect::<Vec<_>>();
+    let [status, id, len] = parts.as_slice() else {
+        return Err(io::Error::new(ErrorKind::InvalidData, "invalid completion header"));
+    };
+    let id = id.parse::<u64>().map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?;
+    let len = len.parse::<usize>().map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?;
+    let mut payload = vec![0; len];
+    input.read_exact(&mut payload)?;
+    let payload =
+        String::from_utf8(payload).map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?;
+    let result = if *status == "OK" { Ok(payload) } else { Err(payload) };
+    Ok(Some(CompletionMessage { id, result }))
+}
 
 impl Drop for CompletionAgentProcess {
     fn drop(&mut self) {
@@ -184,11 +217,14 @@ impl Default for Editor {
             use_color: true,
             completion_agent: None,
             completion_receiver: None,
+            completion_enabled: false,
             completion_system_prompt: None,
             completion_system_prompt_file: None,
             ghost_text: None,
             last_keypress: Instant::now(),
-            last_completion_req_pos: None,
+            last_completion_context: None,
+            completion_request_id: 0,
+            pending_completion_id: None,
         }
     }
 }
@@ -237,24 +273,19 @@ fn get_akey(c: u8) -> AKey {
 }
 
 impl Editor {
-    fn start_completion_agent(&mut self) {
+    fn start_completion_agent(&mut self) -> bool {
         use std::process::Stdio;
         use std::sync::mpsc::channel;
 
         let (tx, rx) = channel();
         self.completion_receiver = Some(rx);
 
-        let python_path =
-            if Path::new("/home/emmanuel/projects/email_graphs/graphing/bin/python3").exists() {
-                "/home/emmanuel/projects/email_graphs/graphing/bin/python3"
-            } else {
-                "python3"
-            };
-
-        let mut cmd = Command::new(python_path);
-        cmd.arg("/home/emmanuel/projects/ai10xdev/code.dev/kibi/scripts/completion_agent.py")
+        let python = std::env::var("MAIES_PYTHON").unwrap_or_else(|_| "python3".into());
+        let mut cmd = Command::new(&python);
+        cmd.args(["-u", "-c", COMPLETION_AGENT_SCRIPT])
             .stdin(Stdio::piped())
-            .stdout(Stdio::piped());
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
 
         if let Some(system_prompt_file) =
             self.completion_system_prompt_file.as_deref().filter(|value| !value.trim().is_empty())
@@ -264,55 +295,51 @@ impl Editor {
             self.completion_system_prompt.as_deref().filter(|value| !value.trim().is_empty())
         {
             cmd.arg("--system-prompt").arg(system_prompt);
-        } else if let Ok(system_prompt_file) = std::env::var("KIBI_SYSTEM_PROMPT_FILE")
-            && !system_prompt_file.trim().is_empty()
-        {
-            cmd.arg("--system-prompt-file").arg(system_prompt_file);
-        } else if let Ok(system_prompt) = std::env::var("KIBI_SYSTEM_PROMPT")
-            && !system_prompt.trim().is_empty()
-        {
-            cmd.arg("--system-prompt").arg(system_prompt);
-        } else {
-            cmd.arg("--system-prompt").arg(DEFAULT_SYSTEM_PROMPT);
         }
 
         let mut child = match cmd.spawn() {
             Ok(c) => c,
-            Err(_) => return,
+            Err(e) => {
+                set_status!(self, "Could not start AI agent with {python}: {e}");
+                self.completion_enabled = false;
+                let _unused = self.refresh_screen();
+                return false;
+            }
         };
-        let mut stdout = BufReader::new(child.stdout.take().expect("Failed to open agent stdout"));
+        let Some(stdout) = child.stdout.take() else {
+            set_status!(self, "Could not read AI agent output");
+            let _unused = child.kill();
+            self.completion_enabled = false;
+            let _unused = self.refresh_screen();
+            return false;
+        };
+        let mut stdout = BufReader::new(stdout);
 
         std::thread::spawn(move || {
-            let mut line = String::new();
-            let mut accumulating = false;
-            let mut current_completion = String::new();
-
-            while stdout.read_line(&mut line).is_ok() {
-                if line.is_empty() {
-                    break;
+            while let Ok(Some(message)) = read_completion(&mut stdout) {
+                if tx.send(message).is_err() {
+                    return;
                 }
-                let trimmed = line.trim_end_matches('\n').trim_end_matches('\r');
-                if trimmed == "COMPLETION_START" {
-                    accumulating = true;
-                    current_completion.clear();
-                } else if trimmed == "COMPLETION_END" {
-                    accumulating = false;
-                    let _unused = tx.send(current_completion.clone());
-                } else if accumulating {
-                    if !current_completion.is_empty() {
-                        current_completion.push('\n');
-                    }
-                    current_completion.push_str(trimmed);
-                }
-                line.clear();
             }
         });
 
         self.completion_agent = Some(CompletionAgentProcess(child));
+        true
     }
 
     fn check_and_trigger_completion(&mut self) {
-        if self.prompt_mode.is_some() {
+        if !self.completion_enabled || self.prompt_mode.is_some() {
+            return;
+        }
+
+        if let Some(agent) = &mut self.completion_agent
+            && let Ok(Some(status)) = agent.0.try_wait()
+        {
+            self.completion_agent = None;
+            self.completion_enabled = false;
+            self.pending_completion_id = None;
+            set_status!(self, "AI agent stopped with {status}; check Python and API configuration");
+            let _unused = self.refresh_screen();
             return;
         }
 
@@ -324,42 +351,45 @@ impl Editor {
             return;
         }
 
-        if let Some(row) = self.rows.get(self.cursor.y) {
-            if self.cursor.x != row.chars.len() {
-                return;
-            }
-        }
-
-        let current_pos = (self.cursor.x, self.cursor.y);
-        if self.last_completion_req_pos == Some(current_pos) {
+        if self.pending_completion_id.is_some() {
             return;
         }
 
-        self.last_completion_req_pos = Some(current_pos);
-
-        let mut should_start = false;
-        if let Some(agent) = &mut self.completion_agent {
-            if let Ok(Some(_)) = agent.0.try_wait() {
-                should_start = true;
-            }
-        } else {
-            should_start = true;
-        }
-
-        if should_start {
-            self.start_completion_agent();
+        if let Some(row) = self.rows.get(self.cursor.y)
+            && self.cursor.x != row.chars.len()
+        {
+            return;
         }
 
         let context = self.get_context_before_cursor();
+        if self.last_completion_context.as_deref() == Some(&context) {
+            return;
+        }
 
-        if let Some(agent) = &mut self.completion_agent {
-            if let Some(stdin) = &mut agent.0.stdin {
-                let escaped = context.replace("\\", "\\\\").replace("\n", "\\n");
-                let mut line = escaped;
-                line.push('\n');
-                let _unused = stdin.write_all(line.as_bytes());
-                let _unused = stdin.flush();
-            }
+        if self.completion_agent.is_none() && !self.start_completion_agent() {
+            return;
+        }
+
+        self.completion_request_id += 1;
+        let request_id = self.completion_request_id;
+        let send_error = if let Some(agent) = &mut self.completion_agent
+            && let Some(stdin) = &mut agent.0.stdin
+        {
+            writeln!(stdin, "{request_id} {}", context.len())
+                .and_then(|()| stdin.write_all(context.as_bytes()))
+                .and_then(|()| stdin.flush())
+                .err()
+        } else {
+            None
+        };
+        if let Some(e) = send_error {
+            set_status!(self, "Could not request AI completion: {e}");
+            self.completion_agent = None;
+            self.completion_enabled = false;
+            let _unused = self.refresh_screen();
+        } else {
+            self.last_completion_context = Some(context);
+            self.pending_completion_id = Some(request_id);
         }
     }
 
@@ -420,7 +450,7 @@ impl Editor {
             // position will be adjusted after this `match` to accommodate the current row
             // length, so we can just set here to the maximum possible value here.
             (AKey::Left, _) if self.cursor.y > 0 => {
-                (self.cursor.y, self.cursor.x) = (self.cursor.y - 1, usize::MAX)
+                (self.cursor.y, self.cursor.x) = (self.cursor.y - 1, usize::MAX);
             }
             (AKey::Right, Some(row)) if self.cursor.x < row.chars.len() => {
                 let mut cursor_x = self.cursor.x + row.get_char_size(row.cx2rx[self.cursor.x]);
@@ -517,12 +547,25 @@ impl Editor {
                 while let Ok(completion) = receiver.try_recv() {
                     latest = Some(completion);
                 }
-                if let Some(completion) = latest {
-                    if self.last_completion_req_pos == Some((self.cursor.x, self.cursor.y)) {
-                        if !completion.is_empty() && !completion.starts_with("Error:") {
-                            self.ghost_text = Some(completion);
-                            self.refresh_screen()?;
+                if let Some(completion) = latest
+                    && self.pending_completion_id == Some(completion.id)
+                {
+                    self.pending_completion_id = None;
+                    if self.last_completion_context.as_deref()
+                        == Some(&self.get_context_before_cursor())
+                    {
+                        match completion.result {
+                            Ok(text) if !text.is_empty() => {
+                                self.ghost_text = Some(
+                                    text.chars()
+                                        .filter(|c| !c.is_control() || matches!(c, '\n' | '\t'))
+                                        .collect(),
+                                );
+                            }
+                            Ok(_) => (),
+                            Err(e) => set_status!(self, "AI completion failed: {e}"),
                         }
+                        self.refresh_screen()?;
                     }
                 }
             }
@@ -868,11 +911,29 @@ impl Editor {
                     self.use_color,
                     selected_rx.as_ref(),
                 );
-                if i == self.cursor.y {
-                    if let Some(ghost) = &self.ghost_text {
-                        let first_line = ghost.lines().next().unwrap_or("");
-                        push_colored(buffer, "\x1b[38;5;244m", first_line, self.use_color);
+                if i == self.cursor.y
+                    && let Some(ghost) = &self.ghost_text
+                {
+                    let mut column = self.rx();
+                    let limit = self.cursor.coff.saturating_add(self.screen_cols);
+                    let mut first_line = String::new();
+                    for c in ghost.lines().next().unwrap_or("").chars() {
+                        let width = if c == '\t' {
+                            self.config.tab_stop.get() - column % self.config.tab_stop.get()
+                        } else {
+                            c.width().unwrap_or(1)
+                        };
+                        if column.saturating_add(width) > limit {
+                            break;
+                        }
+                        if c == '\t' {
+                            first_line.push_str(&" ".repeat(width));
+                        } else {
+                            first_line.push(c);
+                        }
+                        column += width;
                     }
+                    push_colored(buffer, "\x1b[38;5;244m", &first_line, self.use_color);
                 }
             } else {
                 // Draw an empty row
@@ -910,7 +971,11 @@ impl Editor {
         buffer.push_str(CLEAR_LINE_RIGHT_OF_CURSOR);
         let msg_duration = self.config.message_dur;
         if let Some(sm) = self.status_msg.as_ref().filter(|sm| sm.time.elapsed() < msg_duration) {
-            buffer.push_str(&sm.msg[..sm.msg.len().min(self.window_width)]);
+            let mut width = 0;
+            buffer.extend(sm.msg.chars().filter(|c| !c.is_control()).take_while(|c| {
+                width += c.width().unwrap_or(1);
+                width <= self.window_width
+            }));
         }
     }
 
@@ -1010,7 +1075,7 @@ impl Editor {
             }
             Key::Char(SAVE) => prompt_mode = Some(PromptMode::Save(String::new())),
             Key::Char(FIND) => {
-                prompt_mode = Some(PromptMode::Find(String::new(), self.cursor.clone(), None))
+                prompt_mode = Some(PromptMode::Find(String::new(), self.cursor.clone(), None));
             }
             Key::Char(GOTO) => prompt_mode = Some(PromptMode::GoTo(String::new())),
             Key::Char(DUPLICATE) => self.duplicate_current_row(),
@@ -1109,14 +1174,15 @@ impl Editor {
 ///
 /// Will Return `Err` if any error occur when registering the window size signal
 /// handler, enabling raw mode, or running the editor.
-pub fn run_with_completion_prompt<I: BufRead>(
-    file_name: Option<&str>, input: &mut I, system_prompt_file: Option<&str>,
-    system_prompt: Option<&str>,
+fn run_internal<I: BufRead>(
+    file_name: Option<&str>, input: &mut I, completion_enabled: bool,
+    system_prompt_file: Option<&str>, system_prompt: Option<&str>,
 ) -> Result<(), Error> {
     sys::register_winsize_change_signal_handler()?;
     let orig_term_mode = sys::enable_raw_mode()?;
     let mut editor = Editor {
         config: Config::load(),
+        completion_enabled,
         completion_system_prompt: system_prompt.map(String::from),
         completion_system_prompt_file: system_prompt_file.map(String::from),
         ..Default::default()
@@ -1139,6 +1205,30 @@ pub fn run_with_completion_prompt<I: BufRead>(
     result
 }
 
+/// Run the editor with AI completion and an optional custom system prompt.
+///
+/// # Errors
+///
+/// Returns an error if terminal setup, input, rendering, or file access fails.
+pub fn run_with_completion_prompt<I: BufRead>(
+    file_name: Option<&str>, input: &mut I, system_prompt_file: Option<&str>,
+    system_prompt: Option<&str>,
+) -> Result<(), Error> {
+    run_internal(file_name, input, true, system_prompt_file, system_prompt)
+}
+
+/// Run the editor with optional AI completion.
+///
+/// # Errors
+///
+/// Returns an error if terminal setup, input, rendering, or file access fails.
+pub fn run_with_ai<I: BufRead>(
+    file_name: Option<&str>, input: &mut I, enabled: bool, system_prompt_file: Option<&str>,
+    system_prompt: Option<&str>,
+) -> Result<(), Error> {
+    run_internal(file_name, input, enabled, system_prompt_file, system_prompt)
+}
+
 /// Set up the terminal and run the text editor. If `file_name` is not None,
 /// load the file.
 ///
@@ -1147,7 +1237,7 @@ pub fn run_with_completion_prompt<I: BufRead>(
 /// Will Return `Err` if any error occur when registering the window size signal
 /// handler, enabling raw mode, or running the editor.
 pub fn run<I: BufRead>(file_name: Option<&str>, input: &mut I) -> Result<(), Error> {
-    run_with_completion_prompt(file_name, input, None, None)
+    run_internal(file_name, input, false, None, None)
 }
 
 /// The prompt mode.
@@ -1236,7 +1326,7 @@ impl PromptMode {
                     let mut args = b.split_whitespace();
                     match Command::new(args.next().unwrap_or_default()).args(args).output() {
                         Ok(out) if !out.status.success() => {
-                            set_status!(ed, "{}", String::from_utf8_lossy(&out.stderr).trim_end())
+                            set_status!(ed, "{}", String::from_utf8_lossy(&out.stderr).trim_end());
                         }
                         Ok(out) => out.stdout.into_iter().for_each(|c| match c {
                             b'\n' => ed.insert_new_line(),
@@ -1915,7 +2005,7 @@ mod tests {
     }
 
     #[test]
-    fn test_completion_trigger_mechanics() {
+    fn completion_trigger_mechanics() {
         let mut editor = Editor::default();
         editor.insert_str("fn main() {\n");
         assert!(editor.last_keypress.elapsed() < std::time::Duration::from_secs(1));
@@ -2027,5 +2117,38 @@ mod tests {
 
         assert!(buffer.contains("\x1b[7mell\x1b[m"));
         Ok(())
+    }
+
+    #[test]
+    fn completion_protocol_preserves_multiline_whitespace() -> Result<(), io::Error> {
+        let payload = "  first line\nsecond \\n line  ";
+        let response = format!("OK 42 {}\n{payload}", payload.len());
+        let message = read_completion(&mut Cursor::new(response))?.expect("completion response");
+
+        assert_eq!(message.id, 42);
+        assert_eq!(message.result.as_deref(), Ok(payload));
+        Ok(())
+    }
+
+    #[test]
+    fn completion_protocol_preserves_errors() -> Result<(), io::Error> {
+        let payload = "invalid API key";
+        let response = format!("ERR 7 {}\n{payload}", payload.len());
+        let message = read_completion(&mut Cursor::new(response))?.expect("completion response");
+
+        assert_eq!(message.id, 7);
+        assert_eq!(message.result.as_ref().err().map(String::as_str), Some(payload));
+        Ok(())
+    }
+
+    #[test]
+    fn message_bar_sanitizes_controls_and_truncates_at_character_boundaries() {
+        let mut editor = Editor { window_width: 2, ..Default::default() };
+        editor.status_msg = Some(StatusMessage::new("\x1b[31mééé".into()));
+        let mut buffer = String::new();
+
+        editor.draw_message_bar(&mut buffer);
+
+        assert_eq!(buffer, format!("{CLEAR_LINE_RIGHT_OF_CURSOR}[3"));
     }
 }

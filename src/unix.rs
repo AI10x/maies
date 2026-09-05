@@ -42,7 +42,7 @@ static WSC: AtomicBool = AtomicBool::new(false);
 
 /// Handle a change in window size.
 extern "C" fn handle_wsize(_: c_int, _: *mut siginfo_t, _: *mut c_void) {
-    WSC.store(true, Relaxed)
+    WSC.store(true, Relaxed);
 }
 
 /// Register a signal handler that sets a global variable when the window size
