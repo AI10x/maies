@@ -28,9 +28,7 @@ pub enum HlType {
 impl Display for HlType {
     /// Write the ANSI color escape sequence for the `HLType` using the given
     /// formatter.
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "\x1b[{}m", (*self as u32) % 100)
-    }
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result { write!(f, "\x1b[{}m", (*self as u32) % 100) }
 }
 
 /// Configuration for syntax highlighting.
@@ -88,12 +86,11 @@ impl Conf {
                 "highlight_numbers" => sc.highlight_numbers = pv(val)?,
                 "singleline_string_quotes" => sc.sl_string_quotes = pvs(val)?,
                 "singleline_comment_start" => sc.sl_comment_start = pvs(val)?,
-                "multiline_comment_delims" => {
+                "multiline_comment_delims" =>
                     sc.ml_comment_delims = match val.split_once(',') {
                         Some((v1, v2)) if !v2.contains(',') => Some((pv(v1)?, pv(v2)?)),
                         _ => return Err(format!("Expected 2 delimiters, got {val}")),
-                    }
-                }
+                    },
                 "multiline_string_delim" => sc.ml_string_delim = Some(pv(val)?),
                 "keywords_1" => sc.keywords.push((HlType::Keyword1, pvs(val)?)),
                 "keywords_2" => sc.keywords.push((HlType::Keyword2, pvs(val)?)),
@@ -116,6 +113,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[expect(clippy::assert_is_empty, reason = "Unnecessary for non-emptiness check.")]
     fn syntax_d_files() {
         let mut file_count = 0;
         let mut syntax_names = HashSet::new();

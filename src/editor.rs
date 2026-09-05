@@ -12,9 +12,7 @@ use unicode_width::UnicodeWidthChar;
 use crate::row::{HlState, Row};
 use crate::{Config, Error, ansi_escape::*, syntax::Conf as SyntaxConf, sys, terminal};
 
-const fn ctrl_key(key: u8) -> u8 {
-    key & 0x1f
-}
+const fn ctrl_key(key: u8) -> u8 { key & 0x1f }
 const EXIT: u8 = ctrl_key(b'Q');
 const DELETE_BIS: u8 = ctrl_key(b'H');
 const REFRESH_SCREEN: u8 = ctrl_key(b'L');
@@ -33,12 +31,13 @@ const BACKSPACE: u8 = 127;
 const WELCOME_MESSAGE: &str = concat!("Maies ", env!("CARGO_PKG_VERSION"));
 const HELP_MESSAGE: &str = "^S save | ^Q quit | ^F find | ^G go to | ^D duplicate | ^E execute | \
                             ^C copy | ^X cut | ^V paste | ^/ comment";
-pub const DEFAULT_SYSTEM_PROMPT: &str = "You are a spec/text driven completion assistant. Your task is \
-    to output the characters/spec that should immediately follow the provided prefix code, to complete \
-    the line and/or subsequent lines. Do NOT repeat the prefix, do NOT wrap your answer in markdown \
-    code blocks (like ```), and do NOT include any introductory or explanatory text. Your response \
-    will be appended directly to the prefix, so it must form a syntactically correct and logical \
-    continuation. Provide ONLY the completion content.";
+pub const DEFAULT_SYSTEM_PROMPT: &str =
+    "You are a spec/text driven completion assistant. Your task is to output the characters/spec \
+     that should immediately follow the provided prefix code, to complete the line and/or \
+     subsequent lines. Do NOT repeat the prefix, do NOT wrap your answer in markdown code blocks \
+     (like ```), and do NOT include any introductory or explanatory text. Your response will be \
+     appended directly to the prefix, so it must form a syntactically correct and logical \
+     continuation. Provide ONLY the completion content.";
 const COMPLETION_AGENT_SCRIPT: &str = include_str!("../scripts/completion_agent.py");
 
 /// `set_status!` sets a formatted status message for the editor.
@@ -83,9 +82,7 @@ struct CursorState {
 }
 
 impl CursorState {
-    const fn move_to_next_line(&mut self) {
-        (self.x, self.y) = (0, self.y + 1);
-    }
+    const fn move_to_next_line(&mut self) { (self.x, self.y) = (0, self.y + 1); }
 
     /// Scroll the terminal window vertically and horizontally (i.e. adjusting
     /// the row offset and the column offset) so that the cursor can be
@@ -190,9 +187,7 @@ fn read_completion(input: &mut impl BufRead) -> io::Result<Option<CompletionMess
 }
 
 impl Drop for CompletionAgentProcess {
-    fn drop(&mut self) {
-        let _unused = self.0.kill();
-    }
+    fn drop(&mut self) { let _unused = self.0.kill(); }
 }
 
 impl Default for Editor {
@@ -239,9 +234,7 @@ struct StatusMessage {
 
 impl StatusMessage {
     /// Create a new status message and set time to the current date/time.
-    fn new(msg: String) -> Self {
-        Self { msg, time: Instant::now() }
-    }
+    fn new(msg: String) -> Self { Self { msg, time: Instant::now() } }
 }
 
 /// Pretty-format a size in bytes.
@@ -424,16 +417,12 @@ impl Editor {
 
     /// Return the current row if the cursor points to an existing row, `None`
     /// otherwise.
-    fn current_row(&self) -> Option<&Row> {
-        self.rows.get(self.cursor.y)
-    }
+    fn current_row(&self) -> Option<&Row> { self.rows.get(self.cursor.y) }
 
     /// Return the position of the cursor, in terms of rendered characters (as
     /// opposed to `self.cursor.x`, which is the position of the cursor in
     /// terms of bytes).
-    fn rx(&self) -> usize {
-        self.current_row().map_or(0, |r| r.cx2rx[self.cursor.x])
-    }
+    fn rx(&self) -> usize { self.current_row().map_or(0, |r| r.cx2rx[self.cursor.x]) }
 
     /// Move the cursor following an arrow key (← → ↑ ↓).
     fn move_cursor(&mut self, key: &AKey, ctrl: bool) {
@@ -541,7 +530,8 @@ impl Editor {
                 self.refresh_screen()?;
             }
 
-            // Check if there are any completions received from the background thread
+            // Check if there are any completions received from the background
+            // thread
             if let Some(receiver) = &self.completion_receiver {
                 let mut latest = None;
                 while let Ok(completion) = receiver.try_recv() {
@@ -573,8 +563,8 @@ impl Editor {
             // Check if we should trigger a new completion request
             self.check_and_trigger_completion();
 
-            // Match on the next byte received or, if the first byte is <ESC> ('\x1b'), on
-            // the next few bytes.
+            // Match on the next byte received or, if the first byte is <ESC>
+            // ('\x1b'), on the next few bytes.
             if let Some(a) = bytes.next().transpose()? {
                 if a != b'\x1b' {
                     return Ok(Key::Char(a));
@@ -587,7 +577,8 @@ impl Editor {
                         (b'[', mut c @ Some(b'0'..=b'8')) => {
                             let mut d = bytes.next().transpose()?;
                             if (c, d) == (Some(b'1'), Some(b';')) {
-                                // 1 is the default modifier value. Therefore, <ESC>[1;5C is
+                                // 1 is the default modifier value. Therefore,
+                                // <ESC>[1;5C is
                                 // equivalent to <ESC>[5C, etc.
                                 c = bytes.next().transpose()?;
                                 d = bytes.next().transpose()?;
@@ -626,9 +617,10 @@ impl Editor {
     /// maximum number of digits for line numbers (since the left padding
     /// depends on this number of digits).
     fn update_screen_cols(&mut self) {
-        // The maximum number of digits to use for the line number is the number of
-        // digits of the last line number. This is equal to the number of times
-        // we can divide this number by ten, computed below using `successors`.
+        // The maximum number of digits to use for the line number is the number
+        // of digits of the last line number. This is equal to the
+        // number of times we can divide this number by ten, computed
+        // below using `successors`.
         let n_digits = scsr(Some(self.rows.len()), |u| Some(u / 10).filter(|u| *u > 0)).count();
         let show_line_num = self.config.show_line_num && n_digits + 2 < self.window_width / 4;
         self.ln_pad = if show_line_num { n_digits + 2 } else { 0 };
@@ -667,7 +659,8 @@ impl Editor {
             row.chars.insert(self.cursor.x, c);
         } else {
             self.rows.push(Row::new(vec![c]));
-            // The number of rows has changed. The left padding may need to be updated.
+            // The number of rows has changed. The left padding may need to be
+            // updated.
             self.update_screen_cols();
         }
         self.update_row(self.cursor.y, false);
@@ -681,8 +674,8 @@ impl Editor {
         let (position, new_row_chars) = if self.cursor.x == 0 {
             (self.cursor.y, Vec::new())
         } else {
-            // self.rows[self.cursor.y] must exist, since cursor.x = 0 for any cursor.y ≥
-            // row.len()
+            // self.rows[self.cursor.y] must exist, since cursor.x = 0 for any
+            // cursor.y ≥ row.len()
             let new_chars = self.rows[self.cursor.y].chars.split_off(self.cursor.x);
             self.update_row(self.cursor.y, false);
             (self.cursor.y + 1, new_chars)
@@ -701,8 +694,8 @@ impl Editor {
     fn delete_char(&mut self) {
         if self.cursor.x > 0 {
             let row = &mut self.rows[self.cursor.y];
-            // Obtain the number of bytes to be removed: could be 1-4 (UTF-8 character
-            // size).
+            // Obtain the number of bytes to be removed: could be 1-4 (UTF-8
+            // character size).
             let n_bytes_to_remove = row.get_char_size(row.cx2rx[self.cursor.x] - 1);
             row.chars.splice(self.cursor.x - n_bytes_to_remove..self.cursor.x, iter::empty());
             self.update_row(self.cursor.y, false);
@@ -716,12 +709,13 @@ impl Editor {
             previous_row.chars.extend(&row.chars);
             self.update_row(self.cursor.y - 1, true);
             self.update_row(self.cursor.y, false);
-            // The number of rows has changed. The left padding may need to be updated.
+            // The number of rows has changed. The left padding may need to be
+            // updated.
             self.update_screen_cols();
             (self.dirty, self.cursor.y) = (true, self.cursor.y - 1);
         } else if self.cursor.y == self.rows.len() {
-            // If the cursor is located after the last row, pressing backspace is equivalent
-            // to pressing the left arrow key.
+            // If the cursor is located after the last row, pressing backspace
+            // is equivalent to pressing the left arrow key.
             self.move_cursor(&AKey::Left, false);
         }
     }
@@ -772,7 +766,8 @@ impl Editor {
         // Check if the line is already commented
         let n_update = if row.chars.get(pos..pos + sym.len()) == Some(sym.as_bytes()) {
             let to_remove = sym.len() + usize::from(row.chars.get(pos + sym.len()) == Some(&b' '));
-            // Remove the comment and return the removed size as a negative integer
+            // Remove the comment and return the removed size as a negative
+            // integer
             0isize.saturating_sub_unsigned(row.chars.drain(pos..pos + to_remove).len())
         } else {
             // Insert comment at the first non-whitespace position
@@ -807,16 +802,18 @@ impl Editor {
         for line in BufReader::new(&file).split(b'\n') {
             self.rows.push(Row::new(line?));
         }
-        // If the file ends with an empty line or is empty, we need to append an empty
-        // row to `self.rows`. Unfortunately, BufReader::split doesn't yield an
-        // empty Vec in this case, so we need to check the last byte directly.
+        // If the file ends with an empty line or is empty, we need to append an
+        // empty row to `self.rows`. Unfortunately, BufReader::split
+        // doesn't yield an empty Vec in this case, so we need to check
+        // the last byte directly.
         file.seek(io::SeekFrom::End(0))?;
         #[expect(clippy::unbuffered_bytes)]
         if file.bytes().next().transpose()?.is_none_or(|b| b == b'\n') {
             self.rows.push(Row::new(Vec::new()));
         }
         self.update_all_rows();
-        // The number of rows has changed. The left padding may need to be updated.
+        // The number of rows has changed. The left padding may need to be
+        // updated.
         self.update_screen_cols();
         self.n_bytes = self.rows.iter().map(|row| row.chars.len() as u64).sum();
         Ok(())
@@ -878,9 +875,7 @@ impl Editor {
     /// Return whether the file being edited is empty or not. If there is more
     /// than one row, even if all the rows are empty, `is_empty` returns
     /// `false`, since the text contains new lines.
-    const fn is_empty(&self) -> bool {
-        self.rows.len() <= 1 && self.n_bytes == 0
-    }
+    const fn is_empty(&self) -> bool { self.rows.len() <= 1 && self.n_bytes == 0 }
 
     /// Draw rows of text and empty rows on the terminal, by adding characters
     /// to the buffer.
@@ -919,7 +914,7 @@ impl Editor {
                     let mut first_line = String::new();
                     for c in ghost.lines().next().unwrap_or("").chars() {
                         let width = if c == '\t' {
-                            self.config.tab_stop.get() - column % self.config.tab_stop.get()
+                            self.config.tab_stop.get() - column % self.config.tab_stop
                         } else {
                             c.width().unwrap_or(1)
                         };
@@ -988,12 +983,12 @@ impl Editor {
         self.draw_status_bar(&mut buffer);
         self.draw_message_bar(&mut buffer);
         let (cursor_x, cursor_y) = if self.prompt_mode.is_none() {
-            // If not in prompt mode, position the cursor according to the `cursor`
-            // attributes.
+            // If not in prompt mode, position the cursor according to the
+            // `cursor` attributes.
             (self.rx() - self.cursor.coff + 1 + self.ln_pad, self.cursor.y - self.cursor.roff + 1)
         } else {
-            // If in prompt mode, position the cursor on the prompt line at the end of the
-            // line.
+            // If in prompt mode, position the cursor on the prompt line at the
+            // end of the line.
             (self.status_msg.as_ref().map_or(0, |sm| sm.msg.len() + 1), self.screen_rows + 2)
         };
         // Finally, print `buffer` and move the cursor
@@ -1047,18 +1042,16 @@ impl Editor {
                 self.delete_selection();
                 self.insert_new_line();
             }
-            Key::Char(BACKSPACE | DELETE_BIS) => {
+            Key::Char(BACKSPACE | DELETE_BIS) =>
                 if !self.delete_selection() {
                     self.delete_char();
-                }
-            }
+                },
             Key::Char(REMOVE_LINE) => self.delete_current_row(),
-            Key::Delete => {
+            Key::Delete =>
                 if !self.delete_selection() {
                     self.move_cursor(&AKey::Right, false);
                     self.delete_char();
-                }
-            }
+                },
             Key::Escape => self.selection_anchor = None,
             Key::Char(REFRESH_SCREEN) => (),
             Key::Char(EXIT) => {
@@ -1117,8 +1110,9 @@ impl Editor {
             current = (current + if forward { 1 } else { num_rows - 1 }) % num_rows;
             let row = &mut self.rows[current];
             if let Some(cx) = row.chars.windows(query.len()).position(|w| w == query.as_bytes()) {
-                // self.cursor.coff: Try to reset the column offset; if the match is after the
-                // offset, this will be updated in self.cursor.scroll() so that
+                // self.cursor.coff: Try to reset the column offset; if the
+                // match is after the offset, this will be
+                // updated in self.cursor.scroll() so that
                 // the result is visible
                 (self.cursor.x, self.cursor.y, self.cursor.coff) = (cx, current, 0);
                 let rx = row.cx2rx[cx];
@@ -1283,9 +1277,8 @@ impl PromptMode {
                     PromptState::Active(query) => {
                         #[expect(clippy::wildcard_enum_match_arm)]
                         let (last_match, forward) = match key {
-                            Key::Arrow(AKey::Right | AKey::Down) | Key::Char(FIND) => {
-                                (last_match, true)
-                            }
+                            Key::Arrow(AKey::Right | AKey::Down) | Key::Char(FIND) =>
+                                (last_match, true),
                             Key::Arrow(AKey::Left | AKey::Up) => (last_match, false),
                             _ => (None, true),
                         };
@@ -1822,41 +1815,37 @@ mod tests {
         }
 
         assert_row_chars_equal(&editor, &[b"A", b"b/*c", b"d", b"e", b"f*/g", b"h"]);
-        assert_row_synthax_highlighting_types_equal(
-            &editor,
-            &[
-                &[HlType::Normal],
-                &[HlType::Normal, HlType::MlComment, HlType::MlComment, HlType::MlComment],
-                &[HlType::MlComment],
-                &[HlType::MlComment],
-                &[HlType::MlComment, HlType::MlComment, HlType::MlComment, HlType::Normal],
-                &[HlType::Normal],
-            ],
-        );
+        assert_row_synthax_highlighting_types_equal(&editor, &[
+            &[HlType::Normal],
+            &[HlType::Normal, HlType::MlComment, HlType::MlComment, HlType::MlComment],
+            &[HlType::MlComment],
+            &[HlType::MlComment],
+            &[HlType::MlComment, HlType::MlComment, HlType::MlComment, HlType::Normal],
+            &[HlType::Normal],
+        ]);
 
         (editor.cursor.x, editor.cursor.y) = (0, 4);
         editor.delete_current_row();
 
         assert_row_chars_equal(&editor, &[b"A", b"b/*c", b"d", b"e", b"h"]);
-        assert_row_synthax_highlighting_types_equal(
-            &editor,
-            &[
-                &[HlType::Normal],
-                &[HlType::Normal, HlType::MlComment, HlType::MlComment, HlType::MlComment],
-                &[HlType::MlComment],
-                &[HlType::MlComment],
-                &[HlType::MlComment],
-            ],
-        );
+        assert_row_synthax_highlighting_types_equal(&editor, &[
+            &[HlType::Normal],
+            &[HlType::Normal, HlType::MlComment, HlType::MlComment, HlType::MlComment],
+            &[HlType::MlComment],
+            &[HlType::MlComment],
+            &[HlType::MlComment],
+        ]);
 
         (editor.cursor.x, editor.cursor.y) = (0, 1);
         editor.delete_current_row();
 
         assert_row_chars_equal(&editor, &[b"A", b"d", b"e", b"h"]);
-        assert_row_synthax_highlighting_types_equal(
-            &editor,
-            &[&[HlType::Normal], &[HlType::Normal], &[HlType::Normal], &[HlType::Normal]],
-        );
+        assert_row_synthax_highlighting_types_equal(&editor, &[
+            &[HlType::Normal],
+            &[HlType::Normal],
+            &[HlType::Normal],
+            &[HlType::Normal],
+        ]);
     }
 
     #[test]

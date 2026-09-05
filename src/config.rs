@@ -83,9 +83,7 @@ impl Config {
 ///
 /// Will print warnings to stderr for invalid lines
 pub fn process_ini_file<F>(path: &Path, kv_fn: &mut F)
-where
-    F: FnMut(&str, &str) -> Result<(), String>,
-{
+where F: FnMut(&str, &str) -> Result<(), String> {
     read_to_string(path).map_or_else(
         |e| eprintln!("Could not read {}: {}", path.to_string_lossy(), e),
         |config| {
@@ -105,13 +103,13 @@ where
 }
 
 /// Trim a value (right-hand side of a key=value INI line) and parses it.
-pub fn parse_value<T: FromStr<Err = E>, E: Display>(value: &str) -> Result<T, String> {
+pub fn parse_value<T: FromStr<Err=E>, E: Display>(value: &str) -> Result<T, String> {
     value.parse().map_err(|e: E| e.to_string())
 }
 
 /// Split a comma-separated list of values (right-hand side of a
 /// key=value1,value2,... INI line) and parse it as a Vec.
-pub fn parse_values<T: FromStr<Err = E>, E: Display>(values: &str) -> Result<Vec<T>, String> {
+pub fn parse_values<T: FromStr<Err=E>, E: Display>(values: &str) -> Result<Vec<T>, String> {
     values.split(',').map(|value| parse_value(value.trim())).collect()
 }
 
@@ -128,9 +126,7 @@ mod tests {
     use super::*;
 
     fn ini_processing_helper<F>(ini_content: &str, kv_fn: &mut F)
-    where
-        F: FnMut(&str, &str) -> Result<(), String>,
-    {
+    where F: FnMut(&str, &str) -> Result<(), String> {
         let tmp_dir = TempDir::new().expect("Could not create temporary directory");
         let file_path = tmp_dir.path().join("test_config.ini");
         fs::write(&file_path, ini_content).expect("Could not write INI file");
@@ -181,14 +177,11 @@ mod tests {
             Ok(())
         };
         ini_processing_helper(ini_content, kv_fn);
-        assert_eq!(
-            parsed,
-            vec![
-                (String::from("a"), String::from("c")),
-                (String::from("a"), String::from("d5")),
-                (String::from("u"), String::from("v = w"))
-            ]
-        );
+        assert_eq!(parsed, vec![
+            (String::from("a"), String::from("c")),
+            (String::from("a"), String::from("d5")),
+            (String::from("u"), String::from("v = w"))
+        ]);
     }
     #[test]
     fn ini_processing_invalid_path() {
@@ -217,8 +210,8 @@ mod tests {
         fn set(&mut self, key: &'static OsStr, value: Option<&OsStr>) {
             let original_value = env::var_os(key);
             assert!(self.original_values.insert(key, original_value).is_none());
-            // SAFETY: Only one test at a time may set or remove an environment variable, as
-            // enforced by ENV_LOCK.
+            // SAFETY: Only one test at a time may set or remove an environment
+            // variable, as enforced by ENV_LOCK.
             #[expect(unsafe_code)]
             unsafe {
                 match value {
@@ -231,8 +224,8 @@ mod tests {
 
     impl Drop for TempEnvVars<'_> {
         fn drop(&mut self) {
-            // SAFETY: Only one test at a time may set or remove an environment variable, as
-            // enforced by ENV_LOCK.
+            // SAFETY: Only one test at a time may set or remove an environment
+            // variable, as enforced by ENV_LOCK.
             #[expect(unsafe_code)]
             unsafe {
                 for (key, original_value) in &self.original_values {

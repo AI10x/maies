@@ -13,9 +13,7 @@ struct Args {
     system_prompt_file: Option<String>,
 }
 
-fn too_many_arguments() -> Error {
-    Error::TooManyArguments(std::env::args().collect())
-}
+fn too_many_arguments() -> Error { Error::TooManyArguments(std::env::args().collect()) }
 
 fn parse_args(args: Vec<String>) -> Result<Args, Error> {
     let mut parsed =

@@ -26,5 +26,4 @@ mod terminal;
 #[cfg_attr(target_os = "wasi", path = "wasi.rs")]
 mod sys;
 
-#[cfg(any(unix, target_os = "wasi"))]
-mod xdg;
+#[cfg(any(unix, target_os = "wasi"))] mod xdg;
